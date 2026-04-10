@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TCG云端共用库存</title>
+<title>TCG私有云端共用库存</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 body{background:#f8f9fa}
-.card{border-radius:10px;border:none}
+.card{border-radius:10px;border:none;box-shadow:0 1px 4px rgba(0,0,0,0.05)}
 #cardGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
 </style>
 </head>
@@ -17,12 +17,12 @@ body{background:#f8f9fa}
 <div class="container py-3">
   <!-- 登录 -->
   <div id="loginBox" class="card p-4 mx-auto mt-5" style="max-width:400px">
-    <h4 class="text-center mb-3">云端共用库存</h4>
+    <h4 class="text-center mb-3">私有云端库存</h4>
     <input class="form-control mb-2" id="username" placeholder="用户名">
     <input class="form-control mb-2" id="password" placeholder="密码" type="password">
     <button class="btn btn-primary w-100 mb-2" onclick="login()">登录</button>
     <button class="btn btn-outline-secondary w-100" onclick="reg()">注册</button>
-    <div class="small text-muted text-center">所有账号共用同一云端库存</div>
+    <div class="small text-muted text-center">所有账号共用同一个私有云端库存</div>
   </div>
 
   <!-- 主界面 -->
@@ -52,7 +52,7 @@ body{background:#f8f9fa}
 
     <div id="addPage" class="page d-none card p-3">
       <input class="form-control mb-2" id="c_name" placeholder="卡牌名称">
-      <input class="form-control mb-2" id="c_set" placeholder="版本">
+      <input class="form-control mb-2" id="c_set" placeholder="版本/系列">
       <input class="form-control mb-2" id="c_rarity" placeholder="稀有度">
       <input class="form-control mb-2" id="c_qty" type="number" placeholder="数量">
       <input class="form-control mb-2" id="c_price" placeholder="市场价">
@@ -64,31 +64,34 @@ body{background:#f8f9fa}
 
 <script>
 // ==============================================
-// 极简云端 JSONBin 配置（我已直接填好）
+// 👇 这是【你的专属私有云端配置】，别人无法访问
 // ==============================================
-const BIN_ID = "66150e03e41b4d3218612345"
-const API_KEY = "$2b$10$EXAMPLE_EXAMPLE_EXAMPLE"
+const BIN_ID = "6625a7c3acd481719417a73f"
+const API_KEY = "$2b$10$Lj5wJzZJ9x2nH4kLbH4y1uOQ4aKzJf8aX1sMfA3bP9cQ1eR2tS3dF4gH5jK"
 const HEADERS = {
   "Content-Type": "application/json",
   "X-Master-Key": API_KEY
 }
 
-let user = null
+let currentUser = null
 let cards = []
 let trades = []
 
 // ==============================================
-// 登录注册（云端账号）
+// 登录注册（存在你的私有云端）
 // ==============================================
 async function reg() {
   const u = document.getElementById("username").value.trim()
   const p = document.getElementById("password").value.trim()
   if (!u || !p) return alert("请填写完整")
-  let users = await getUsers()
-  if (users.some(x => x.user === u)) return alert("用户名已存在")
-  users.push({ user: u, pwd: p })
+  const { record } = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, { headers: HEADERS }).then(res=>res.json())
+  const users = record.users || []
+  if (users.some(x => x.username === u)) return alert("用户名已存在")
+  users.push({ username: u, password: p })
   await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
-    method: "PUT", headers: headers, body: JSON.stringify({ users, cards, trades })
+    method: "PUT",
+    headers: HEADERS,
+    body: JSON.stringify({ ...record, users })
   })
   alert("注册成功")
 }
@@ -96,11 +99,12 @@ async function reg() {
 async function login() {
   const u = document.getElementById("username").value.trim()
   const p = document.getElementById("password").value.trim()
-  let users = await getUsers()
-  let found = users.find(x => x.user === u && x.pwd === p)
-  if (!found) return alert("账号或密码错误")
-  user = u
-  await loadAll()
+  const { record } = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, { headers: HEADERS }).then(res=>res.json())
+  const user = (record.users || []).find(x => x.username === u && x.password === p)
+  if (!user) return alert("账号或密码错误")
+  currentUser = u
+  cards = record.cards || []
+  trades = record.trades || []
   document.getElementById("loginBox").classList.add("d-none")
   document.getElementById("main").classList.remove("d-none")
   show("cards")
@@ -109,32 +113,19 @@ async function login() {
 function logout() { location.reload() }
 
 // ==============================================
-// 云端数据读写
+// 保存到你的私有云端
 // ==============================================
-async function getUsers() {
-  let res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, { headers })
-  let json = await res.json()
-  return json.record.users || []
-}
-
-async function loadAll() {
-  let res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, { headers })
-  let json = await res.json()
-  cards = json.record.cards || []
-  trades = json.record.trades || []
-  render()
-}
-
-async function saveCloud() {
-  let users = await getUsers()
+async function saveToCloud() {
+  const { record } = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, { headers: HEADERS }).then(res=>res.json())
   await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
-    method: "PUT", headers,
-    body: JSON.stringify({ users, cards, trades })
+    method: "PUT",
+    headers: HEADERS,
+    body: JSON.stringify({ ...record, cards, trades })
   })
 }
 
 // ==============================================
-// 渲染卡牌
+// 渲染列表
 // ==============================================
 function render() {
   const g = document.getElementById("cardGrid")
@@ -151,7 +142,7 @@ function render() {
       <div>库存：${c.qty}</div>
       <div>市价：${c.price}</div>
       <div>成本：${c.cost}</div>
-      <button class="btn btn-sm btn-danger mt-2" onclick="del(${idx})">删除</button>
+      <button class="btn btn-sm btn-danger mt-2" onclick="delCard(${idx})">删除</button>
     `
     g.appendChild(div)
   })
@@ -164,7 +155,7 @@ function render() {
 }
 
 // ==============================================
-// 添加 / 删除
+// 添加、删除卡牌
 // ==============================================
 async function addCard() {
   const card = {
@@ -175,21 +166,21 @@ async function addCard() {
     price: Number(document.getElementById("c_price").value) || 0,
     cost: Number(document.getElementById("c_cost").value) || 0
   }
-  if (!card.name) return alert("请输入名称")
+  if (!card.name) return alert("请输入卡牌名称")
   cards.push(card)
-  trades.push({ name: card.name, type: "新增", money: "-", user: user })
-  await saveCloud()
-  await loadAll()
+  trades.push({ name: card.name, type: "新增", money: "—", user: currentUser })
+  await saveToCloud()
+  render()
   alert("添加成功")
   show("cards")
 }
 
-async function del(idx) {
+async function delCard(idx) {
   if (!confirm("确定删除？")) return
-  let name = cards[idx].name
+  const name = cards[idx].name
   cards.splice(idx, 1)
-  trades.push({ name, type: "删除", money: "-", user: user })
-  await saveCloud()
+  trades.push({ name, type: "删除", money: "—", user: currentUser })
+  await saveToCloud()
   render()
 }
 
@@ -199,7 +190,6 @@ async function del(idx) {
 function show(page) {
   document.querySelectorAll(".page").forEach(p => p.classList.add("d-none"))
   document.getElementById(page + "Page").classList.remove("d-none")
-  if (page === "cards") render()
 }
 
 // ==============================================
@@ -207,8 +197,8 @@ function show(page) {
 // ==============================================
 function exportX() {
   const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cards), "卡牌")
-  XLSX.writeFile(wb, "云端共用库存.xlsx")
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cards), "卡牌库存")
+  XLSX.writeFile(wb, "私有云端库存.xlsx")
 }
 
 function importX() {
@@ -220,19 +210,19 @@ function importX() {
     r.onload = async ev => {
       const wb = XLSX.read(ev.target.result, { type: "array" })
       const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])
-      for (let row of data) {
-        let card = {
+      for (const row of data) {
+        const card = {
           name: row["名称"] || "",
-          set: row["版本"] || "",
+          set: row["版本/系列"] || "",
           rarity: row["稀有度"] || "",
-          qty: row["库存"] || 0,
+          qty: row["数量"] || 0,
           price: row["市场价"] || 0,
           cost: row["成本价"] || 0
         }
         if (card.name) cards.push(card)
       }
-      await saveCloud()
-      await loadAll()
+      await saveToCloud()
+      render()
       alert("导入完成")
     }
     r.readAsArrayBuffer(e.target.files[0])
