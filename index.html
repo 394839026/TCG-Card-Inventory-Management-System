@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TCG共用库存管理系统-带空白模板下载</title>
+<title>TCG共用库存管理系统-批量买入智能匹配</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -137,7 +137,7 @@ body { background: var(--body-bg); color: var(--text); transition: 0.3s; font-si
     <!-- 批量买入 -->
     <div id="bulkBuy" class="page d-none">
       <div class="card p-3">
-        <h6>批量买入（输入编号自动补全）</h6>
+        <h6>批量买入（输入编号/名称/版本 自动匹配）</h6>
         <div id="bulkBuyList" class="mb-2"></div>
         <button class="btn btn-sm btn-secondary w-100 mb-2" onclick="addBuyLine()">+ 添加一行</button>
         <button class="btn btn-primary w-100" onclick="doBulkBuy()">确认买入</button>
@@ -402,58 +402,88 @@ function refreshDashboard() {
 }
 
 // ==============================================
-// 批量买入
+// 批量买入 —— 智能匹配版
 // ==============================================
 function addBuyLine() {
   const d = document.createElement('div');
-  d.className = 'd-flex gap-2 mb-2 flex-wrap';
+  d.className = 'd-flex gap-2 mb-2 flex-wrap align-items-center';
   d.innerHTML = `
-  <input class="form-control form-control-sm flex-grow-1 buy-code" placeholder="输入编号" oninput="buyLineAuto(this)">
-  <input class="form-control form-control-sm flex-grow-1 buy-name" placeholder="卡牌名" readonly>
-  <input class="form-control form-control-sm flex-grow-1" type="number" placeholder="数量">
-  <input class="form-control form-control-sm flex-grow-1" type="number" placeholder="单价">`;
+  <input class="form-control form-control-sm flex-grow-1 buy-key" placeholder="输入编号/名称/版本" oninput="autoMatchCard(this)">
+  <input class="form-control form-control-sm flex-grow-1 buy-name" placeholder="卡牌名" readonly style="background:#f8f9fa">
+  <input class="form-control form-control-sm flex-grow-1 buy-set" placeholder="版本" readonly style="background:#f8f9fa">
+  <input class="form-control form-control-sm flex-grow-1 buy-qty" type="number" placeholder="数量" value="1">
+  <input class="form-control form-control-sm flex-grow-1 buy-price" type="number" placeholder="成本单价" value="0">`;
   document.getElementById('bulkBuyList').appendChild(d);
 }
 
-function buyLineAuto(input){
+// 智能匹配：编号 / 名称 / 版本 任意匹配
+function autoMatchCard(input) {
   const val = input.value.trim().toLowerCase();
   const row = input.closest('.d-flex');
-  const nameInput = row.querySelector('.buy-name');
-  const hit = cardLib.find(x=>x.code.toLowerCase()===val);
-  if(hit){
-    nameInput.value = hit.name;
+  if (!val) {
+    row.querySelector('.buy-name').value = '';
+    row.querySelector('.buy-set').value = '';
+    return;
+  }
+
+  // 智能匹配逻辑
+  const hit = cardLib.find(x =>
+    x.code.toLowerCase() === val ||
+    x.name.toLowerCase() === val ||
+    x.set.toLowerCase() === val
+  );
+
+  if (hit) {
+    row.querySelector('.buy-name').value = hit.name;
+    row.querySelector('.buy-set').value = hit.set;
   }
 }
 
+// 执行买入
 function doBulkBuy() {
   const lines = document.querySelectorAll('#bulkBuyList > div');
   lines.forEach(line => {
-    const inputs = line.querySelectorAll('input');
-    const code = inputs[0].value.trim();
-    const name = inputs[1].value.trim();
-    const qty = +inputs[2].value || 0;
-    const price = +inputs[3].value || 0;
+    const key = line.querySelector('.buy-key').value.trim();
+    const name = line.querySelector('.buy-name').value.trim();
+    const set = line.querySelector('.buy-set').value.trim();
+    const qty = +line.querySelector('.buy-qty').value || 0;
+    const price = +line.querySelector('.buy-price').value || 0;
+
     if (!name || qty <= 0) return;
 
-    let exist = db.cards.find(c => c.code === code || c.name === name);
+    // 匹配卡牌库
+    const libItem = cardLib.find(x =>
+      x.code.toLowerCase() === key.toLowerCase() ||
+      x.name.toLowerCase() === key.toLowerCase() ||
+      x.set.toLowerCase() === key.toLowerCase()
+    );
+
+    // 查找库存是否存在
+    let exist = db.cards.find(c =>
+      c.code === libItem?.code ||
+      c.name === name ||
+      (c.name === name && c.set === set)
+    );
+
     if (exist) {
       exist.qty += qty;
+      exist.actual = price; // 更新成本价
     } else {
-      const libItem = cardLib.find(x=>x.code===code);
-      db.cards.push({ 
-        code,
-        name,
-        set: libItem?libItem.set:'',
-        rarity: libItem?libItem.rare:'',
-        qty, 
-        price, 
-        actual: price, 
-        ownerType: '自有' 
+      db.cards.push({
+        code: libItem ? libItem.code : '',
+        name: name,
+        set: libItem ? libItem.set : set,
+        rarity: libItem ? libItem.rare : '',
+        qty: qty,
+        price: 0,
+        actual: price,
+        ownerType: '自有'
       });
     }
 
+    // 记录交易
     db.trades.push({
-      cardCode: code,
+      cardCode: libItem ? libItem.code : '',
       cardName: name,
       type: '买入',
       money: (qty * price).toFixed(2),
@@ -461,8 +491,9 @@ function doBulkBuy() {
       user: currentUser
     });
   });
+
   saveGlobalData();
-  alert('买入完成');
+  alert('批量买入完成！');
   showPage('cards');
 }
 
@@ -508,11 +539,8 @@ function doBulkSell() {
 }
 
 // ==============================================
-// Excel 导出 + 空白模板下载
+// Excel 导出 + 空白模板
 // ==============================================
-let importCoverMode = false;
-
-// 固定模板表头（导出 + 空白模板 + 导入 完全一致）
 const templateColumns = [
   { key: 'code', title: '编号' },
   { key: 'name', title: '名称' },
@@ -524,7 +552,6 @@ const templateColumns = [
   { key: 'ownerType', title: '归属' }
 ];
 
-// 下载空白模板（新增功能）
 function downloadEmptyTemplate() {
   const emptyData = [{}];
   const exportData = emptyData.map(item => {
@@ -534,14 +561,12 @@ function downloadEmptyTemplate() {
     });
     return row;
   });
-
   const wb = XLSX.utils.book_new();
   const sheet = XLSX.utils.json_to_sheet(exportData);
   XLSX.utils.book_append_sheet(wb, sheet, '库存导入模板');
   XLSX.writeFile(wb, 'TCG卡牌库存_空白模板.xlsx');
 }
 
-// 导出数据
 function exportExcel() {
   const exportData = db.cards.map(item => {
     let row = {};
@@ -550,14 +575,13 @@ function exportExcel() {
     });
     return row;
   });
-
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(exportData), '卡牌库存');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(db.trades), '交易记录');
   XLSX.writeFile(wb, 'TCG共用库存数据.xlsx');
 }
 
-// 导入
+let importCoverMode = false;
 function openImportSelect(){
   const opt = confirm('请选择导入模式：\n确定 = 覆盖现有全部库存\n取消 = 追加导入(重复卡牌合并)');
   importCoverMode = opt;
@@ -577,7 +601,6 @@ function importExcel() {
       if(importCoverMode){
         db.cards = [];
       }
-
       data.forEach(row => {
         const name = (row['名称'] || '').trim();
         if (!name) return;
