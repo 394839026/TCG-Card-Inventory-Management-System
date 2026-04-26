@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TCG共用库存管理系统</title>
+<title>TCG共用库存管理系统-带编号自动补全</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -14,6 +14,9 @@ body { background: var(--body-bg); color: var(--text); transition: 0.3s; font-si
 .card { background: var(--card-bg) !important; border:0; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,0.08); }
 .btn-primary { background: var(--primary) !important; border:0; }
 #cardGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:0.8rem; }
+.autocomplete-item { padding:4px 8px; cursor:pointer; }
+.autocomplete-item:hover { background:#e9ecef; }
+.auto-box { position:absolute; z-index:999; background:#fff; border:1px solid #ccc; max-height:200px; overflow:auto; }
 </style>
 </head>
 <body>
@@ -43,7 +46,7 @@ body { background: var(--body-bg); color: var(--text); transition: 0.3s; font-si
       </div>
     </div>
 
-    <input class="form-control mb-3" id="globalSearch" placeholder="搜索卡牌名称/版本/稀有度">
+    <input class="form-control mb-3" id="globalSearch" placeholder="搜索编号/卡牌名称/版本/稀有度">
 
     <div class="d-flex gap-2 flex-wrap mb-3">
       <button class="btn btn-sm btn-primary" onclick="showPage('cards')">卡牌</button>
@@ -68,6 +71,7 @@ body { background: var(--body-bg); color: var(--text); transition: 0.3s; font-si
           <table class="table table-sm">
             <thead>
               <tr>
+                <th>编号</th>
                 <th>卡牌</th>
                 <th>类型</th>
                 <th>金额</th>
@@ -109,7 +113,10 @@ body { background: var(--body-bg); color: var(--text); transition: 0.3s; font-si
 
     <!-- 添加卡牌 -->
     <div id="addCard" class="page d-none">
-      <div class="card p-3">
+      <div class="card p-3 position-relative">
+        <input class="form-control form-control-sm mb-2" id="cCode" placeholder="卡牌编号" oninput="codeAutoFill()">
+        <div id="autoCodeList" class="auto-box d-none w-100"></div>
+
         <input class="form-control form-control-sm mb-2" id="cName" placeholder="名称">
         <input class="form-control form-control-sm mb-2" id="cSet" placeholder="版本">
         <input class="form-control form-control-sm mb-2" id="cRare" placeholder="稀有度">
@@ -128,7 +135,7 @@ body { background: var(--body-bg); color: var(--text); transition: 0.3s; font-si
     <!-- 批量买入 -->
     <div id="bulkBuy" class="page d-none">
       <div class="card p-3">
-        <h6>批量买入</h6>
+        <h6>批量买入（输入编号自动补全）</h6>
         <div id="bulkBuyList" class="mb-2"></div>
         <button class="btn btn-sm btn-secondary w-100 mb-2" onclick="addBuyLine()">+ 添加一行</button>
         <button class="btn btn-primary w-100" onclick="doBulkBuy()">确认买入</button>
@@ -148,12 +155,21 @@ body { background: var(--body-bg); color: var(--text); transition: 0.3s; font-si
 </div>
 
 <script>
+// ===================== 卡牌编号资料库 =====================
+// 你后续直接在这里新增卡牌编号、名称、版本、稀有度即可
+const cardLib = [
+  {code:"BP01-001", name:"黎明圣骑", set:"基础包BP01", rare:"SSR"},
+  {code:"BP01-002", name:"暗夜法师", set:"基础包BP01", rare:"SR"},
+  {code:"BP01-003", name:"森林游侠", set:"基础包BP01", rare:"R"},
+  {code:"SP02-001", name:"深渊领主", set:"限定SP02", rare:"UR"},
+  {code:"SP02-002", name:"圣光天使", set:"限定SP02", rare:"SSR"}
+];
+
 // ==============================================
-// 账号系统（仅登录验证，数据全局共用）
+// 账号系统
 // ==============================================
 let currentUser = null;
 
-// 注册
 function userRegister() {
   const name = document.getElementById('username').value.trim();
   const pwd = document.getElementById('password').value.trim();
@@ -163,13 +179,11 @@ function userRegister() {
   alert('注册成功！请登录');
 }
 
-// 登录
 function userLogin() {
   const name = document.getElementById('username').value.trim();
   const pwd = document.getElementById('password').value.trim();
   const realPwd = localStorage.getItem('USER_' + name);
   if (!realPwd || realPwd !== pwd) return alert('账号或密码错误');
-
   currentUser = name;
   document.getElementById('authBox').classList.add('d-none');
   document.getElementById('mainBox').classList.remove('d-none');
@@ -183,7 +197,7 @@ function userLogout() {
 }
 
 // ==============================================
-// 全局共用库存（所有账号共用）
+// 全局库存
 // ==============================================
 let db = {
   cards: JSON.parse(localStorage.getItem('GLOBAL_CARDS')) || [],
@@ -212,7 +226,7 @@ document.getElementById('darkBtn').onclick = () => {
 };
 
 // ==============================================
-// 页面切换 & 搜索
+// 搜索（支持 编号/名称/版本/稀有度）
 // ==============================================
 let searchCache = '';
 document.getElementById('globalSearch').oninput = (e) => {
@@ -234,7 +248,35 @@ function isHideZero() {
 document.getElementById('hideZeroStock').onchange = () => loadCards();
 
 // ==============================================
-// 卡牌列表（极速渲染）
+// 编号输入自动补全
+// ==============================================
+function codeAutoFill(){
+  const val = document.getElementById('cCode').value.trim().toLowerCase();
+  const box = document.getElementById('autoCodeList');
+  let match = cardLib.filter(x=>x.code.toLowerCase().includes(val));
+  if(!val || match.length===0){
+    box.classList.add('d-none');
+    return;
+  }
+  box.classList.remove('d-none');
+  box.innerHTML = '';
+  match.forEach(item=>{
+    const div = document.createElement('div');
+    div.className = 'autocomplete-item';
+    div.innerText = `${item.code} | ${item.name} | ${item.set} | ${item.rare}`;
+    div.onclick = ()=>{
+      document.getElementById('cCode').value = item.code;
+      document.getElementById('cName').value = item.name;
+      document.getElementById('cSet').value = item.set;
+      document.getElementById('cRare').value = item.rare;
+      box.classList.add('d-none');
+    };
+    box.appendChild(div);
+  });
+}
+
+// ==============================================
+// 卡牌列表渲染（显示编号）
 // ==============================================
 function loadCards() {
   const box = document.getElementById('cardGrid');
@@ -244,12 +286,13 @@ function loadCards() {
   const frag = document.createDocumentFragment();
   db.cards.forEach((c, idx) => {
     if (hide && c.qty <= 0) return;
-    const txt = (c.name + c.set + c.rarity).toLowerCase();
+    const txt = (c.code + c.name + c.set + c.rarity).toLowerCase();
     if (searchCache && !txt.includes(searchCache)) return;
 
     const div = document.createElement('div');
     div.className = 'card p-3';
     div.innerHTML = `
+      <div class="small text-primary">${c.code||'无编号'}</div>
       <h6 class="mb-1">${c.name}</h6>
       <small class="text-muted">${c.set || ''} ${c.rarity || ''}</small>
       <div>库存：${c.qty}</div>
@@ -265,12 +308,12 @@ function loadCards() {
 }
 
 // ==============================================
-// 添加 / 修改 / 删除 修复版
+// 添加/编辑卡牌
 // ==============================================
-// 保存卡牌（新增/编辑通用）
 function saveCard() {
   const editIdx = parseInt(document.getElementById('editIndex').value);
   const card = {
+    code: document.getElementById('cCode').value.trim(),
     name: document.getElementById('cName').value.trim(),
     set: document.getElementById('cSet').value.trim(),
     rarity: document.getElementById('cRare').value.trim(),
@@ -282,22 +325,19 @@ function saveCard() {
   if (!card.name) return alert('请输入名称');
 
   if(editIdx >= 0){
-    // 编辑覆盖
     db.cards[editIdx] = card;
   }else{
-    // 新增
     db.cards.push(card);
   }
   saveGlobalData();
   alert('保存成功');
-  // 清空编辑标记
   document.getElementById('editIndex').value = "-1";
   showPage('cards');
 }
 
-// 编辑卡牌
 function editCard(idx) {
   const c = db.cards[idx];
+  document.getElementById('cCode').value = c.code || '';
   document.getElementById('cName').value = c.name || '';
   document.getElementById('cSet').value = c.set || '';
   document.getElementById('cRare').value = c.rarity || '';
@@ -305,7 +345,6 @@ function editCard(idx) {
   document.getElementById('cPrice').value = c.price || 0;
   document.getElementById('cActual').value = c.actual || 0;
   document.getElementById('cOwnerType').value = c.ownerType || '自有';
-  // 记录编辑下标
   document.getElementById('editIndex').value = idx;
   showPage('addCard');
 }
@@ -318,7 +357,7 @@ function delCard(idx) {
 }
 
 // ==============================================
-// 交易记录（带操作人）
+// 交易记录
 // ==============================================
 function loadTrades() {
   const t = document.getElementById('tradeTable');
@@ -326,6 +365,7 @@ function loadTrades() {
   db.trades.forEach((tr) => {
     t.innerHTML += `
     <tr>
+      <td>${tr.cardCode||''}</td>
       <td>${tr.cardName}</td>
       <td>${tr.type}</td>
       <td>${tr.money}</td>
@@ -336,7 +376,7 @@ function loadTrades() {
 }
 
 // ==============================================
-// 总览
+// 总览统计
 // ==============================================
 function refreshDashboard() {
   let totalCount = 0, totalPrice = 0, totalActual = 0;
@@ -352,45 +392,61 @@ function refreshDashboard() {
 }
 
 // ==============================================
-// 批量买入 / 卖出
+// 批量买入 带编号自动补全
 // ==============================================
 function addBuyLine() {
   const d = document.createElement('div');
   d.className = 'd-flex gap-2 mb-2';
   d.innerHTML = `
-  <input class="form-control form-control-sm" placeholder="卡牌名">
+  <input class="form-control form-control-sm buy-code" placeholder="输入编号" oninput="buyLineAuto(this)">
+  <input class="form-control form-control-sm buy-name" placeholder="卡牌名" readonly>
   <input class="form-control form-control-sm" type="number" placeholder="数量">
   <input class="form-control form-control-sm" type="number" placeholder="单价">`;
   document.getElementById('bulkBuyList').appendChild(d);
 }
 
-function addSellLine() {
-  const d = document.createElement('div');
-  d.className = 'd-flex gap-2 mb-2';
-  d.innerHTML = `
-  <input class="form-control form-control-sm" placeholder="卡牌名">
-  <input class="form-control form-control-sm" type="number" placeholder="数量">
-  <input class="form-control form-control-sm" type="number" placeholder="单价">`;
-  document.getElementById('bulkSellList').appendChild(d);
+// 批量买入行编号自动匹配
+function buyLineAuto(input){
+  const val = input.value.trim().toLowerCase();
+  const row = input.closest('.d-flex');
+  const nameInput = row.querySelector('.buy-name');
+  const hit = cardLib.find(x=>x.code.toLowerCase()===val);
+  if(hit){
+    nameInput.value = hit.name;
+  }
 }
 
 function doBulkBuy() {
   const lines = document.querySelectorAll('#bulkBuyList > div');
   lines.forEach(line => {
     const inputs = line.querySelectorAll('input');
-    const name = inputs[0].value.trim();
-    const qty = +inputs[1].value || 0;
-    const price = +inputs[2].value || 0;
+    const code = inputs[0].value.trim();
+    const name = inputs[1].value.trim();
+    const qty = +inputs[2].value || 0;
+    const price = +inputs[3].value || 0;
     if (!name || qty <= 0) return;
 
-    const exist = db.cards.find(c => c.name === name);
+    // 按编号/名称匹配
+    let exist = db.cards.find(c => c.code === code || c.name === name);
     if (exist) {
       exist.qty += qty;
     } else {
-      db.cards.push({ name, qty, price, actual: price, ownerType: '自有' });
+      // 从资料库补全信息
+      const libItem = cardLib.find(x=>x.code===code);
+      db.cards.push({ 
+        code,
+        name,
+        set: libItem?libItem.set:'',
+        rarity: libItem?libItem.rare:'',
+        qty, 
+        price, 
+        actual: price, 
+        ownerType: '自有' 
+      });
     }
 
     db.trades.push({
+      cardCode: code,
       cardName: name,
       type: '买入',
       money: (qty * price).toFixed(2),
@@ -403,22 +459,36 @@ function doBulkBuy() {
   showPage('cards');
 }
 
+// ==============================================
+// 批量卖出
+// ==============================================
+function addSellLine() {
+  const d = document.createElement('div');
+  d.className = 'd-flex gap-2 mb-2';
+  d.innerHTML = `
+  <input class="form-control form-control-sm" placeholder="卡牌编号/名称">
+  <input class="form-control form-control-sm" type="number" placeholder="数量">
+  <input class="form-control form-control-sm" type="number" placeholder="单价">`;
+  document.getElementById('bulkSellList').appendChild(d);
+}
+
 function doBulkSell() {
   const lines = document.querySelectorAll('#bulkSellList > div');
   lines.forEach(line => {
     const inputs = line.querySelectorAll('input');
-    const name = inputs[0].value.trim();
+    const key = inputs[0].value.trim();
     const qty = +inputs[1].value || 0;
     const price = +inputs[2].value || 0;
-    if (!name || qty <= 0) return;
+    if (!key || qty <= 0) return;
 
-    const card = db.cards.find(c => c.name === name);
+    const card = db.cards.find(c => c.code === key || c.name === key);
     if (!card || card.qty < qty) return;
 
     card.qty -= qty;
 
     db.trades.push({
-      cardName: name,
+      cardCode: card.code,
+      cardName: card.name,
       type: '卖出',
       money: (qty * price).toFixed(2),
       date: new Date().toLocaleString(),
@@ -431,11 +501,10 @@ function doBulkSell() {
 }
 
 // ==============================================
-// Excel 导入：选择 追加 / 覆盖
+// Excel 导入导出（新增编号列 + 覆盖/追加）
 // ==============================================
 let importCoverMode = false;
 
-// 打开导入选择弹窗
 function openImportSelect(){
   const opt = confirm('请选择导入模式：\n确定 = 覆盖现有全部库存\n取消 = 追加导入(重复卡牌合并)');
   importCoverMode = opt;
@@ -452,7 +521,6 @@ function importExcel() {
       const wb = XLSX.read(ev.target.result, { type: 'array' });
       const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
       
-      // 覆盖模式：清空原有库存
       if(importCoverMode){
         db.cards = [];
       }
@@ -461,6 +529,7 @@ function importExcel() {
         const name = (row['名称'] || '').trim();
         if (!name) return;
         const card = {
+          code: row['编号'] || '',
           name,
           set: row['版本'] || '',
           rarity: row['稀有度'] || '',
@@ -469,8 +538,7 @@ function importExcel() {
           actual: Number(row['成本价']) || 0,
           ownerType: row['归属'] || '自有'
         };
-        // 精准匹配：名称+版本 唯一标识
-        const existIdx = db.cards.findIndex(c => c.name === name && c.set === card.set);
+        const existIdx = db.cards.findIndex(c => c.code === card.code || (c.name === name && c.set === card.set));
         if (existIdx >= 0) {
           db.cards[existIdx] = card;
         } else {
@@ -486,14 +554,11 @@ function importExcel() {
   input.click();
 }
 
-// ==============================================
-// Excel 导出
-// ==============================================
 function exportExcel() {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(db.cards), '共用卡牌');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(db.trades), '交易记录');
-  XLSX.writeFile(wb, 'TCG共用库存数据.xlsx');
+  XLSX.writeFile(wb, 'TCG共用库存数据_带编号.xlsx');
 }
 </script>
 </body>
