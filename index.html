@@ -53,7 +53,7 @@ body { background: var(--body-bg); color: var(--text); transition: 0.3s; font-si
       <button class="btn btn-sm btn-primary" onclick="showPage('bulkBuy')">批量买入</button>
       <button class="btn btn-sm btn-primary" onclick="showPage('bulkSell')">批量卖出</button>
       <button class="btn btn-sm btn-success" onclick="exportExcel()">导出Excel</button>
-      <button class="btn btn-sm btn-warning" onclick="importExcel()">导入Excel</button>
+      <button class="btn btn-sm btn-warning" onclick="openImportSelect()">导入Excel</button>
     </div>
 
     <!-- 卡牌列表 -->
@@ -120,7 +120,8 @@ body { background: var(--body-bg); color: var(--text); transition: 0.3s; font-si
           <option value="自有">自有</option>
           <option value="代卖">代卖</option>
         </select>
-        <button class="btn btn-primary w-100" onclick="addCard()">保存卡牌</button>
+        <input type="hidden" id="editIndex" value="-1">
+        <button class="btn btn-primary w-100" onclick="saveCard()">保存卡牌</button>
       </div>
     </div>
 
@@ -264,9 +265,11 @@ function loadCards() {
 }
 
 // ==============================================
-// 添加 / 修改 / 删除
+// 添加 / 修改 / 删除 修复版
 // ==============================================
-function addCard() {
+// 保存卡牌（新增/编辑通用）
+function saveCard() {
+  const editIdx = parseInt(document.getElementById('editIndex').value);
   const card = {
     name: document.getElementById('cName').value.trim(),
     set: document.getElementById('cSet').value.trim(),
@@ -277,23 +280,34 @@ function addCard() {
     ownerType: document.getElementById('cOwnerType').value
   };
   if (!card.name) return alert('请输入名称');
-  db.cards.push(card);
+
+  if(editIdx >= 0){
+    // 编辑覆盖
+    db.cards[editIdx] = card;
+  }else{
+    // 新增
+    db.cards.push(card);
+  }
   saveGlobalData();
   alert('保存成功');
+  // 清空编辑标记
+  document.getElementById('editIndex').value = "-1";
   showPage('cards');
 }
 
+// 编辑卡牌
 function editCard(idx) {
   const c = db.cards[idx];
-  document.getElementById('cName').value = c.name;
+  document.getElementById('cName').value = c.name || '';
   document.getElementById('cSet').value = c.set || '';
   document.getElementById('cRare').value = c.rarity || '';
-  document.getElementById('cQty').value = c.qty;
-  document.getElementById('cPrice').value = c.price;
-  document.getElementById('cActual').value = c.actual;
+  document.getElementById('cQty').value = c.qty || 0;
+  document.getElementById('cPrice').value = c.price || 0;
+  document.getElementById('cActual').value = c.actual || 0;
   document.getElementById('cOwnerType').value = c.ownerType || '自有';
+  // 记录编辑下标
+  document.getElementById('editIndex').value = idx;
   showPage('addCard');
-  setTimeout(() => { db.cards.splice(idx, 1); saveGlobalData(); }, 0);
 }
 
 function delCard(idx) {
@@ -327,10 +341,10 @@ function loadTrades() {
 function refreshDashboard() {
   let totalCount = 0, totalPrice = 0, totalActual = 0;
   db.cards.forEach(c => {
-    const q = c.qty || 0;
+    const q = Number(c.qty) || 0;
     totalCount += q;
-    totalPrice += q * (c.price || 0);
-    totalActual += q * (c.actual || 0);
+    totalPrice += q * (Number(c.price) || 0);
+    totalActual += q * (Number(c.actual) || 0);
   });
   document.getElementById('totalCount').innerText = totalCount;
   document.getElementById('totalPrice').innerText = totalPrice.toFixed(2);
@@ -417,8 +431,17 @@ function doBulkSell() {
 }
 
 // ==============================================
-// Excel 导入导出
+// Excel 导入：选择 追加 / 覆盖
 // ==============================================
+let importCoverMode = false;
+
+// 打开导入选择弹窗
+function openImportSelect(){
+  const opt = confirm('请选择导入模式：\n确定 = 覆盖现有全部库存\n取消 = 追加导入(重复卡牌合并)');
+  importCoverMode = opt;
+  importExcel();
+}
+
 function importExcel() {
   const input = document.createElement('input');
   input.type = 'file';
@@ -428,6 +451,12 @@ function importExcel() {
     reader.onload = ev => {
       const wb = XLSX.read(ev.target.result, { type: 'array' });
       const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      
+      // 覆盖模式：清空原有库存
+      if(importCoverMode){
+        db.cards = [];
+      }
+
       data.forEach(row => {
         const name = (row['名称'] || '').trim();
         if (!name) return;
@@ -435,17 +464,21 @@ function importExcel() {
           name,
           set: row['版本'] || '',
           rarity: row['稀有度'] || '',
-          qty: row['库存'] || 0,
-          price: row['市场价'] || 0,
-          actual: row['成本价'] || 0,
-          ownerType: '自有'
+          qty: Number(row['库存']) || 0,
+          price: Number(row['市场价']) || 0,
+          actual: Number(row['成本价']) || 0,
+          ownerType: row['归属'] || '自有'
         };
-        const exist = db.cards.findIndex(c => c.name === name && c.set === card.set);
-        if (exist >= 0) db.cards[exist] = card;
-        else db.cards.push(card);
+        // 精准匹配：名称+版本 唯一标识
+        const existIdx = db.cards.findIndex(c => c.name === name && c.set === card.set);
+        if (existIdx >= 0) {
+          db.cards[existIdx] = card;
+        } else {
+          db.cards.push(card);
+        }
       });
       saveGlobalData();
-      alert('导入成功！共用库存已更新');
+      alert(importCoverMode ? '覆盖导入成功！' : '追加导入成功！');
       loadCards();
     };
     reader.readAsArrayBuffer(e.target.files[0]);
@@ -453,6 +486,9 @@ function importExcel() {
   input.click();
 }
 
+// ==============================================
+// Excel 导出
+// ==============================================
 function exportExcel() {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(db.cards), '共用卡牌');
