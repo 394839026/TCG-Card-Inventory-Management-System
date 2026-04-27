@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TCG卡牌库存管理 - 纯净美化版</title>
+<title>TCG卡牌库存管理 - 增强实用版</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root{
-  --main-bg:#f8f9fa;
+  --main-bg:#f1f3f6;
   --card-bg:#ffffff;
   --primary:#409eff;
   --text-color:#333;
@@ -16,7 +16,7 @@
   --border:#e5e7eb;
 }
 body{
-  background-color: #f1f3f6;
+  background-color: var(--main-bg);
   font-size:14px;
   color:var(--text-color);
 }
@@ -67,8 +67,9 @@ body{
 }
 .position-relative{position:relative;}
 
-/* 卡牌列表样式 */
-.card-item{
+/* 三种视图样式 */
+/* 简约列表 */
+.view-list .card-item{
   background:#fafbfc;
   border-radius:12px;
   border:1px solid var(--border);
@@ -76,10 +77,38 @@ body{
   margin-bottom:12px;
   transition:0.2s;
 }
-.card-item:hover{
+.view-list .card-item:hover{
   box-shadow:0 2px 10px rgba(0,0,0,0.06);
-  border-color:#dcdfe6;
 }
+
+/* 卡片网格 */
+.view-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+  gap:12px;
+}
+.view-grid .card-item{
+  background:#fafbfc;
+  border-radius:12px;
+  border:1px solid var(--border);
+  padding:12px;
+  text-align:center;
+}
+
+/* 紧凑表格 */
+.view-table{
+  width:100%;
+  border-collapse:collapse;
+}
+.view-table th,.view-table td{
+  border:1px solid var(--border);
+  padding:6px 8px;
+  font-size:13px;
+}
+.view-table th{
+  background:#f5f7fa;
+}
+
 .form-control-sm,.form-select-sm{
   border-radius:8px;
   border:1px solid #dcdfe6;
@@ -90,22 +119,52 @@ body{
   border-color:var(--primary);
 }
 .page{padding-top:10px;}
+.stat-bar{
+  background:#f5f7fa;
+  border-radius:12px;
+  padding:12px 16px;
+  margin-bottom:16px;
+}
 </style>
 </head>
 <body class="p-3">
 
 <div class="card main-card p-4">
   <h5 class="mb-4 fw-bold">🎴 TCG卡牌库存管理系统</h5>
+
+  <!-- 顶部统计栏 -->
+  <div class="stat-bar row g-3 mb-4">
+    <div class="col-md-3"><span class="text-muted">卡牌总种类：</span><strong id="statTotalType">0</strong></div>
+    <div class="col-md-3"><span class="text-muted">卡牌总张数：</span><strong id="statTotalQty">0</strong></div>
+    <div class="col-md-3"><span class="text-muted">库存总估值：</span><strong id="statTotalVal">¥0</strong></div>
+    <div class="col-md-3"><span class="text-muted">零库存数量：</span><strong id="statZeroQty">0</strong></div>
+  </div>
+
+  <!-- 功能按钮 -->
   <div class="d-flex gap-2 flex-wrap mb-4">
     <button class="btn btn-primary btn-sm" onclick="showPage('cards')">卡牌列表</button>
     <button class="btn btn-primary btn-sm" onclick="showPage('stockInOut')">出入库管理</button>
-    <button class="btn btn-success btn-sm" onclick="exportExcel()">导出数据</button>
+
+    <div class="btn-group btn-sm">
+      <button class="btn btn-outline-secondary btn-sm" onclick="setView('list')">简约列表</button>
+      <button class="btn btn-outline-secondary btn-sm" onclick="setView('grid')">卡片网格</button>
+      <button class="btn btn-outline-secondary btn-sm" onclick="setView('table')">紧凑表格</button>
+    </div>
+
+    <button class="btn btn-success btn-sm" onclick="exportExcel()">导出Excel</button>
     <button class="btn btn-info btn-sm" onclick="downloadTemplate()">下载模板</button>
-    <button class="btn btn-warning btn-sm" onclick="importExcel()">导入Excel</button>
+    
+    <div class="btn-group btn-sm">
+      <button class="btn btn-warning btn-sm" onclick="importExcelMode('add')">增量导入</button>
+      <button class="btn btn-danger btn-sm" onclick="importExcelMode('cover')">覆盖导入</button>
+    </div>
+
+    <button class="btn btn-dark btn-sm" onclick="exportJsonBackup()">备份JSON</button>
+    <button class="btn btn-secondary btn-sm" onclick="importJsonBackup()">恢复备份</button>
     <button class="btn btn-danger btn-sm" onclick="clearAll()">清空所有数据</button>
   </div>
 
-  <div id="cards" class="page"></div>
+  <div id="cards" class="page view-list"></div>
 
   <div id="stockInOut" class="page d-none">
     <div class="in-row table-header mb-3">
@@ -117,12 +176,71 @@ body{
   </div>
 </div>
 
+<!-- 编辑弹窗 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title">编辑卡牌信息</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editIndex">
+        <div class="mb-2">
+          <label>卡牌编号</label>
+          <input class="form-control" id="editCode">
+        </div>
+        <div class="mb-2">
+          <label>卡牌名称</label>
+          <input class="form-control" id="editName">
+        </div>
+        <div class="mb-2">
+          <label>库存数量</label>
+          <input class="form-control" type="number" id="editQty" min="0">
+        </div>
+        <div class="mb-2">
+          <label>单张估值(用于统计总资产)</label>
+          <input class="form-control" type="number" id="editPrice" min="0" step="0.01">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger" onclick="delOneCard()">删除此卡牌</button>
+        <button class="btn btn-primary" onclick="saveEdit()">保存修改</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 let db = {
   cards: JSON.parse(localStorage.getItem('TCG_CARDS')) || []
 };
+let nowImportMode = 'add';
+let currentView = 'list';
+const editModal = new bootstrap.Modal(document.getElementById('editModal'));
+
 function saveDB(){
   localStorage.setItem('TCG_CARDS', JSON.stringify(db.cards));
+}
+
+// 视图切换
+function setView(v){
+  currentView = v;
+  renderCards();
+}
+
+// 顶部统计
+function renderStat(){
+  let totalType = db.cards.length;
+  let totalQty = db.cards.reduce((sum,item)=>sum + (Number(item.qty)||0),0);
+  let totalVal = db.cards.reduce((sum,item)=>sum + (Number(item.qty)||0)*(Number(item.price)||0),0);
+  let zeroQty = db.cards.filter(x=>Number(x.qty)===0).length;
+
+  document.getElementById('statTotalType').innerText = totalType;
+  document.getElementById('statTotalQty').innerText = totalQty;
+  document.getElementById('statTotalVal').innerText = '¥' + totalVal.toFixed(2);
+  document.getElementById('statZeroQty').innerText = zeroQty;
 }
 
 function showPage(id){
@@ -136,26 +254,93 @@ function showPage(id){
 }
 
 function renderCards(){
+  renderStat();
+  let wrap = document.getElementById('cards');
+  wrap.className = 'page view-' + currentView;
+
   if(db.cards.length === 0){
-    document.getElementById('cards').innerHTML = `
-    <div class="text-muted text-center p-5 rounded-3" style="background:#fafbfc;">
-      暂无卡牌库存数据
-    </div>`;
+    wrap.innerHTML = `<div class="text-muted text-center p-5 rounded-3" style="background:#fafbfc;">暂无卡牌库存数据</div>`;
     return;
   }
+
+  if(currentView === 'table'){
+    let html = `
+    <table class="view-table">
+      <thead>
+        <tr>
+          <th>编号</th>
+          <th>名称</th>
+          <th>库存</th>
+          <th>单张估值</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>`;
+    db.cards.forEach((c,idx)=>{
+      html += `
+      <tr>
+        <td>${c.code||'无'}</td>
+        <td>${c.name}</td>
+        <td>${c.qty}</td>
+        <td>¥${Number(c.price||0).toFixed(2)}</td>
+        <td>
+          <button class="btn btn-sm btn-outline-primary" onclick="openEdit(${idx})">编辑</button>
+        </td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+    wrap.innerHTML = html;
+    return;
+  }
+
   let html = '';
   db.cards.forEach((c, index)=>{
     html += `
     <div class="card-item">
       <div class="row g-2">
-        <div class="col-md-3"><span class="text-muted">序号：</span>${index+1}</div>
-        <div class="col-md-3"><span class="text-muted">卡牌编号：</span>${c.code||'无'}</div>
-        <div class="col-md-3"><span class="text-muted">卡牌名称：</span>${c.name}</div>
-        <div class="col-md-3"><span class="text-muted">库存数量：</span><strong class="text-primary">${c.qty}</strong></div>
+        <div class="col-6"><span class="text-muted">编号：</span>${c.code||'无'}</div>
+        <div class="col-6"><span class="text-muted">名称：</span>${c.name}</div>
+        <div class="col-6"><span class="text-muted">库存：</span><strong class="text-primary">${c.qty}</strong></div>
+        <div class="col-6"><span class="text-muted">单张估值：</span>¥${Number(c.price||0).toFixed(2)}</div>
+      </div>
+      <div class="mt-2 text-end">
+        <button class="btn btn-sm btn-outline-primary" onclick="openEdit(${index})">编辑</button>
       </div>
     </div>`;
   });
-  document.getElementById('cards').innerHTML = html;
+  wrap.innerHTML = html;
+}
+
+// 编辑卡牌
+function openEdit(idx){
+  let c = db.cards[idx];
+  document.getElementById('editIndex').value = idx;
+  document.getElementById('editCode').value = c.code||'';
+  document.getElementById('editName').value = c.name||'';
+  document.getElementById('editQty').value = c.qty||0;
+  document.getElementById('editPrice').value = c.price||0;
+  editModal.show();
+}
+
+function saveEdit(){
+  let idx = parseInt(document.getElementById('editIndex').value);
+  db.cards[idx].code = document.getElementById('editCode').value.trim();
+  db.cards[idx].name = document.getElementById('editName').value.trim();
+  db.cards[idx].qty = parseInt(document.getElementById('editQty').value)||0;
+  db.cards[idx].price = parseFloat(document.getElementById('editPrice').value)||0;
+  saveDB();
+  editModal.hide();
+  renderCards();
+}
+
+// 单条删除
+function delOneCard(){
+  let idx = parseInt(document.getElementById('editIndex').value);
+  if(!confirm('确定删除这条卡牌？')) return;
+  db.cards.splice(idx,1);
+  saveDB();
+  editModal.hide();
+  renderCards();
 }
 
 // 出入库
@@ -228,7 +413,7 @@ function submitIo(){
     let idx = db.cards.findIndex(x=>x.name===name);
     if(idx===-1){
       if(type==='入库'){
-        db.cards.push({code:'',name:name,qty:qty});
+        db.cards.push({code:'',name:name,qty:qty,price:0});
       }else{
         alert(`【${name}】不存在，无法出库`);
         hasError = true;
@@ -253,10 +438,15 @@ function submitIo(){
   showPage('cards');
 }
 
-// Excel
+// Excel 导入模式
+function importExcelMode(mode){
+  nowImportMode = mode;
+  importExcel();
+}
+
 function downloadTemplate(){
   let ws = XLSX.utils.json_to_sheet([
-    {编号:'',名称:'',库存:''}
+    {编号:'',名称:'',库存:'',单张估值:0}
   ]);
   let wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
@@ -273,23 +463,40 @@ function importExcel(){
     r.onload = ev=>{
       let wb = XLSX.read(ev.target.result, {type:'array'});
       let arr = XLSX.utils.sheet_to_json(wb.Sheets.Sheet1);
-      
-      arr.forEach(row=>{
+      let errorRows = [];
+
+      // 覆盖导入先清空
+      if(nowImportMode === 'cover'){
+        db.cards = [];
+      }
+
+      arr.forEach((row,rowIdx)=>{
+        let line = rowIdx + 2;
         let name = (row['名称']||'').toString().trim();
-        if(!name) return;
+        if(!name){
+          errorRows.push(line);
+          return;
+        }
         let code = (row['编号']||'').toString().trim();
         let qty = Number(row['库存'])||0;
+        let price = Number(row['单张估值'])||0;
         
         let exist = db.cards.findIndex(x=>x.name === name);
         if(exist !== -1){
           db.cards[exist].code = code;
           db.cards[exist].qty = qty;
+          db.cards[exist].price = price;
         }else{
-          db.cards.push({code,name,qty});
+          db.cards.push({code,name,qty,price});
         }
       });
+
       saveDB();
-      alert('导入成功（自动去重更新）');
+      if(errorRows.length>0){
+        alert(`导入完成，但以下行格式错误已跳过：第${errorRows.join(',')}行`);
+      }else{
+        alert(nowImportMode==='add'?'增量导入成功':'覆盖导入成功');
+      }
       showPage('cards');
     };
     r.readAsArrayBuffer(f);
@@ -306,6 +513,42 @@ function exportExcel(){
   let ws = XLSX.utils.json_to_sheet(db.cards);
   XLSX.utils.book_append_sheet(wb, ws, '库存');
   XLSX.writeFile(wb,'卡牌库存.xlsx');
+}
+
+// JSON备份恢复
+function exportJsonBackup(){
+  let dataStr = JSON.stringify(db.cards,null,2);
+  let blob = new Blob([dataStr],{type:'application/json'});
+  let url = URL.createObjectURL(blob);
+  let a = document.createElement('a');
+  a.href = url;
+  a.download = 'TCG_卡牌备份.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importJsonBackup(){
+  let inp = document.createElement('input');
+  inp.type='file';
+  inp.accept='.json';
+  inp.onchange = e=>{
+    let f = e.target.files[0];
+    let r = new FileReader();
+    r.onload = ev=>{
+      try{
+        let arr = JSON.parse(ev.target.result);
+        if(!Array.isArray(arr)) throw Error();
+        db.cards = arr;
+        saveDB();
+        alert('备份恢复成功');
+        renderCards();
+      }catch(err){
+        alert('备份文件格式错误，恢复失败');
+      }
+    };
+    r.readAsText(f);
+  };
+  inp.click();
 }
 
 function clearAll(){
