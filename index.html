@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TCG卡牌库存管理 - 终极全能版</title>
+<title>TCG卡牌库存管理 - 全能稳定版</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
@@ -78,7 +78,7 @@ body {
 
 <div class="main-card p-4 mb-4">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h5>🎴 TCG卡牌库存管理 - 终极全能版</h5>
+    <h5>🎴 TCG卡牌库存管理 - 全能稳定版</h5>
     <button class="btn btn-sm btn-secondary" onclick="toggleDark()">深色/浅色模式</button>
   </div>
 
@@ -160,21 +160,21 @@ function toggleDark(){
 function fillFilter(){
   let ver = {}, rare={}, owner={}, tag={};
   db.cards.forEach(c=>{ ver[c.version] = 1; rare[c.rare] = 1; owner[c.owner] = 1; tag[c.tag] = 1; });
-  $('#ver').html('<option value="">全部版本</option>'+Object.keys(ver).map(v=>`<option value="${v}">${v}</option>`).join(''));
-  $('#rare').html('<option value="">全部稀有度</option>'+Object.keys(rare).map(v=>`<option value="${v}">${v}</option>`).join(''));
-  $('#owner').html('<option value="">全部归属</option>'+Object.keys(owner).map(v=>`<option value="${v}">${v}</option>`).join(''));
-  $('#tag').html('<option value="">全部标签</option><option value="自留">自留</option><option value="可出">可出</option><option value="已预定">已预定</option><option value="借出">借出</option><option value="待补货">待补货</option>');
+  document.getElementById('ver').innerHTML = '<option value="">全部版本</option>'+Object.keys(ver).map(v=>`<option value="${v}">${v}</option>`).join('');
+  document.getElementById('rare').innerHTML = '<option value="">全部稀有度</option>'+Object.keys(rare).map(v=>`<option value="${v}">${v}</option>`).join('');
+  document.getElementById('owner').innerHTML = '<option value="">全部归属</option>'+Object.keys(owner).map(v=>`<option value="${v}">${v}</option>`).join('');
+  document.getElementById('tag').innerHTML = '<option value="">全部标签</option><option value="自留">自留</option><option value="可出">可出</option><option value="已预定">已预定</option><option value="借出">借出</option><option value="待补货">待补货</option>';
 }
 
 function filterList(){
-  let kw = $('#kw').val().toLowerCase();
-  let v = $('#ver').val();
-  let r = $('#rare').val();
-  let o = $('#owner').val();
-  let t = $('#tag').val();
-  let s = $('#stock').val();
-  let p = $('#price').val();
-  let warn = Number($('#warn').val()) || 2;
+  let kw = document.getElementById('kw').value.toLowerCase();
+  let v = document.getElementById('ver').value;
+  let r = document.getElementById('rare').value;
+  let o = document.getElementById('owner').value;
+  let t = document.getElementById('tag').value;
+  let s = document.getElementById('stock').value;
+  let p = document.getElementById('price').value;
+  let warn = Number(document.getElementById('warn').value) || 2;
 
   return db.cards.filter(c=>{
     if(kw && !c.code?.toLowerCase().includes(kw) && !c.name?.toLowerCase().includes(kw)) return false;
@@ -195,7 +195,7 @@ function filterList(){
 }
 
 function sortList(arr){
-  let s = $('#sort').val();
+  let s = document.getElementById('sort').value;
   if(!s) return arr;
   return [...arr].sort((a,b)=>{
     if(s==='code') return (a.code||'').localeCompare(b.code||'');
@@ -211,13 +211,16 @@ function stat(){
   let cost = db.cards.reduce((a,b)=>a+(b.cost||0)*(b.qty||0),0);
   let market = db.cards.reduce((a,b)=>a+(b.market||0)*(b.qty||0),0);
   let zero = db.cards.filter(x=>x.qty<=0).length;
-  $('#s1').text(t); $('#s2').text(qty); $('#s3').text('¥'+cost.toFixed(2));
-  $('#s4').text('¥'+market.toFixed(2)); $('#s5').text('¥'+(market-cost).toFixed(2));
-  $('#s6').text(zero);
+  document.getElementById('s1').textContent = t;
+  document.getElementById('s2').textContent = qty;
+  document.getElementById('s3').textContent = '¥'+cost.toFixed(2);
+  document.getElementById('s4').textContent = '¥'+market.toFixed(2);
+  document.getElementById('s5').textContent = '¥'+(market-cost).toFixed(2);
+  document.getElementById('s6').textContent = zero;
 }
 
 function load(){
-  pageSize = Number($('#pageSize').val());
+  pageSize = Number(document.getElementById('pageSize').value);
   let list = filterList();
   list = sortList(list);
   let total = list.length;
@@ -229,7 +232,7 @@ function load(){
 }
 
 function render(list){
-  let warn = Number($('#warn').val())||2;
+  let warn = Number(document.getElementById('warn').value)||2;
   let html = '';
   if(view==='grid') html+='<div class="grid-view">';
   list.forEach((c,i)=>{
@@ -245,16 +248,15 @@ function render(list){
   });
   if(view==='grid') html+='</div>';
   if(view==='table') html = `<table class='table table-view'><tr><th></th><th>编号</th><th>名称</th><th>版本</th><th>稀有度</th><th>库存</th><th>市价</th><th>归属</th><th>标签</th><th>操作</th></tr>${html}</table>`;
-  $('#app').html(html);
+  document.getElementById('app').innerHTML = html;
 }
 
 function renderPage(max){
   let html = `<div class='pagination'><button class='btn btn-sm' onclick="page=1;load()">首页</button><button class='btn btn-sm' onclick="page--;load()">上页</button><span> ${page}/${max} </span><button class='btn btn-sm' onclick="page++;load()">下页</button><button class='btn btn-sm' onclick="page=${max};load()">末页</button></div>`;
-  $('#pageBar').html(max>1 ? html : '');
+  document.getElementById('pageBar').innerHTML = max>1 ? html : '';
 }
 
 function show(v){ view=v; load(); }
-function $(s){ return document.querySelector(s); }
 
 window.onload = () => { autoBackup(); load(); };
 </script>
