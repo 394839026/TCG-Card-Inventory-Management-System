@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TCG共用库存管理系统-批量买入智能匹配</title>
+<title>TCG共用库存管理系统-统一出入库</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -18,6 +18,10 @@ body { background: var(--body-bg); color: var(--text); transition: 0.3s; font-si
 .autocomplete-item:hover { background:var(--auto-hover); }
 .auto-box { position:absolute; z-index:999; background:var(--auto-bg); color:var(--text); border:1px solid #ccc; max-height:200px; overflow:auto; width:100%; top:100%; left:0; }
 .position-relative { position:relative !important; }
+.in-row { display: grid; grid-template-columns: 110px 1fr 100px 90px 90px 90px 40px; gap: 6px; align-items: center; margin-bottom: 8px; }
+@media (max-width:768px){
+  .in-row { grid-template-columns: 100px 1fr; gap:6px; }
+}
 </style>
 </head>
 <body>
@@ -54,8 +58,9 @@ body { background: var(--body-bg); color: var(--text); transition: 0.3s; font-si
       <button class="btn btn-sm btn-primary" onclick="showPage('trades')">交易</button>
       <button class="btn btn-sm btn-primary" onclick="showPage('dashboard')">总览</button>
       <button class="btn btn-sm btn-primary" onclick="showPage('addCard')">添加</button>
-      <button class="btn btn-sm btn-primary" onclick="showPage('bulkBuy')">批量买入</button>
-      <button class="btn btn-sm btn-primary" onclick="showPage('bulkSell')">批量卖出</button>
+      <!-- 合并为统一出入库，去掉单独买入卖出 -->
+      <button class="btn btn-sm btn-primary" onclick="showPage('stockInOut')">卡牌出入库</button>
+
       <button class="btn btn-sm btn-success" onclick="exportExcel()">导出Excel</button>
       <button class="btn btn-sm btn-info" onclick="downloadEmptyTemplate()">下载空白模板</button>
       <button class="btn btn-sm btn-warning" onclick="openImportSelect()">导入Excel</button>
@@ -134,25 +139,25 @@ body { background: var(--body-bg); color: var(--text); transition: 0.3s; font-si
       </div>
     </div>
 
-    <!-- 批量买入 -->
-    <div id="bulkBuy" class="page d-none">
+    <!-- 全新：统一 买入/卖出 出入库界面 -->
+    <div id="stockInOut" class="page d-none">
       <div class="card p-3">
-        <h6>批量买入（输入编号/名称 自动匹配现有库存）</h6>
-        <div id="bulkBuyList" class="mb-2"></div>
-        <button class="btn btn-sm btn-secondary w-100 mb-2" onclick="addBuyLine()">+ 添加一行</button>
-        <button class="btn btn-primary w-100" onclick="doBulkBuy()">确认买入</button>
+        <h6 class="mb-3">卡牌出入库（支持买入/卖出，自动匹配现有库存）</h6>
+        <div class="fw-bold small mb-2 in-row">
+          <span>出入库类型</span>
+          <span>编号/名称(自动匹配)</span>
+          <span>卡牌名</span>
+          <span>库存</span>
+          <span>数量</span>
+          <span>单价</span>
+          <span></span>
+        </div>
+        <div id="inOutList" class="mb-3"></div>
+        <button class="btn btn-sm btn-secondary w-100 mb-2" onclick="addInOutLine()">+ 添加一行</button>
+        <button class="btn btn-primary w-100" onclick="doStockInOut()">确认提交</button>
       </div>
     </div>
 
-    <!-- 批量卖出 -->
-    <div id="bulkSell" class="page d-none">
-      <div class="card p-3">
-        <h6>批量卖出（自动读取现有库存卡牌）</h6>
-        <div id="bulkSellList" class="mb-2"></div>
-        <button class="btn btn-sm btn-secondary w-100 mb-2" onclick="addSellLine()">+ 添加一行</button>
-        <button class="btn btn-primary w-100" onclick="doBulkSell()">确认卖出</button>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -228,7 +233,7 @@ document.getElementById('globalSearch').oninput = (e) => {
   loadCards();
 };
 
-// 页面切换 修复版
+// 页面切换
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.add('d-none'));
   document.getElementById(id).classList.remove('d-none');
@@ -236,15 +241,9 @@ function showPage(id) {
   if (id === 'cards') loadCards();
   if (id === 'trades') loadTrades();
   if (id === 'dashboard') refreshDashboard();
-  
-  // 进入批量页先清空旧行，再初始化新行
-  if (id === 'bulkBuy') {
-    document.getElementById('bulkBuyList').innerHTML = '';
-    addBuyLine();
-  }
-  if (id === 'bulkSell') {
-    document.getElementById('bulkSellList').innerHTML = '';
-    addSellLine();
+  if (id === 'stockInOut') {
+    document.getElementById('inOutList').innerHTML = '';
+    addInOutLine();
   }
 }
 
@@ -263,7 +262,7 @@ document.addEventListener('click', (e)=>{
 });
 
 // ==============================================
-// 编号输入自动补全（从现有库存读取）
+// 编号输入自动补全
 // ==============================================
 function codeAutoFill(){
   const val = document.getElementById('cCode').value.trim().toLowerCase();
@@ -347,7 +346,6 @@ function saveCard() {
   saveGlobalData();
   alert('保存成功');
   
-  // 清空表单
   document.getElementById('cCode').value = '';
   document.getElementById('cName').value = '';
   document.getElementById('cSet').value = '';
@@ -417,165 +415,136 @@ function refreshDashboard() {
 }
 
 // ==============================================
-// 批量买入 修复版
+// 统一出入库：添加一行
 // ==============================================
-function addBuyLine() {
-  const d = document.createElement('div');
-  d.className = 'd-flex gap-2 mb-2 flex-wrap align-items-center';
-  d.innerHTML = `
-  <input class="form-control form-control-sm flex-grow-1 buy-key" placeholder="输入编号/名称" oninput="autoMatchCard(this)">
-  <input class="form-control form-control-sm flex-grow-1 buy-name" placeholder="卡牌名" readonly style="background:#f8f9fa">
-  <input class="form-control form-control-sm flex-grow-1 buy-set" placeholder="版本" readonly style="background:#f8f9fa">
-  <input class="form-control form-control-sm flex-grow-1 buy-qty" type="number" placeholder="数量" value="1">
-  <input class="form-control form-control-sm flex-grow-1 buy-price" type="number" placeholder="成本单价" value="0">`;
-  document.getElementById('bulkBuyList').appendChild(d);
+function addInOutLine() {
+  const wrap = document.getElementById('inOutList');
+  const line = document.createElement('div');
+  line.className = 'in-row';
+  line.innerHTML = `
+    <select class="form-select form-select-sm io-type">
+      <option value="买入">买入</option>
+      <option value="卖出">卖出</option>
+    </select>
+    <input class="form-control form-control-sm io-key" placeholder="输入编号/名称" oninput="matchIoCard(this)">
+    <input class="form-control form-control-sm io-name" readonly style="background:#f8f9fa">
+    <input class="form-control form-control-sm io-stock" value="0" readonly style="background:#f8f9fa">
+    <input class="form-control form-control-sm io-qty" type="number" value="1" min="1">
+    <input class="form-control form-control-sm io-price" type="number" value="0">
+    <button class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">×</button>
+  `;
+  wrap.appendChild(line);
 }
 
-function autoMatchCard(input) {
+// 出入库自动匹配库存卡牌
+function matchIoCard(input){
   const val = input.value.trim().toLowerCase();
-  const row = input.closest('.d-flex');
-  const nameEl = row.querySelector('.buy-name');
-  const setEl = row.querySelector('.buy-set');
+  const row = input.closest('.in-row');
+  const nameEl = row.querySelector('.io-name');
+  const stockEl = row.querySelector('.io-stock');
 
-  if (!val) {
+  if(!val){
     nameEl.value = '';
-    setEl.value = '';
+    stockEl.value = '0';
     return;
   }
-
+  // 模糊匹配编号或名称
   const hit = db.cards.find(x =>
-    (x.code || "").toLowerCase().includes(val) ||
+    (x.code||"").toLowerCase().includes(val) ||
     x.name.toLowerCase().includes(val)
   );
-
-  if (hit) {
+  if(hit){
     nameEl.value = hit.name;
-    setEl.value = hit.set || '';
-  } else {
+    stockEl.value = hit.qty;
+  }else{
     nameEl.value = '';
-    setEl.value = '';
+    stockEl.value = '0';
   }
 }
 
-function doBulkBuy() {
-  const lines = document.querySelectorAll('#bulkBuyList > div');
-  lines.forEach(line => {
-    const key = line.querySelector('.buy-key').value.trim().toLowerCase();
-    const name = line.querySelector('.buy-name').value.trim();
-    const set = line.querySelector('.buy-set').value.trim();
-    const qty = +line.querySelector('.buy-qty').value || 0;
-    const price = +line.querySelector('.buy-price').value || 0;
+// 执行出入库提交
+function doStockInOut(){
+  const lines = document.querySelectorAll('#inOutList .in-row');
+  let ok = true;
 
-    if (!name || qty <= 0) return;
+  lines.forEach(line=>{
+    const type = line.querySelector('.io-type').value;
+    const key = line.querySelector('.io-key').value.trim();
+    const name = line.querySelector('.io-name').value.trim();
+    const currStock = parseInt(line.querySelector('.io-stock').value) || 0;
+    const qty = parseInt(line.querySelector('.io-qty').value) || 0;
+    const price = parseFloat(line.querySelector('.io-price').value) || 0;
 
-    let exist = db.cards.find(x =>
-      (x.code || "").toLowerCase().includes(key) ||
+    if(!name || qty <= 0){
+      ok = false;
+      return;
+    }
+
+    // 找到对应卡牌
+    const card = db.cards.find(x =>
+      (x.code||"").toLowerCase().includes(key.toLowerCase()) ||
       x.name.toLowerCase() === name.toLowerCase()
     );
 
-    if (exist) {
-      exist.qty += qty;
-      exist.actual = price;
-    } else {
-      db.cards.push({
-        code: '',
-        name: name,
-        set: set,
-        rarity: '',
-        qty: qty,
-        price: 0,
-        actual: price,
-        ownerType: '自有'
-      });
+    if(!card){
+      // 买入不存在则新建卡牌
+      if(type === '买入'){
+        db.cards.push({
+          code: '',
+          name: name,
+          set: '',
+          rarity: '',
+          qty: qty,
+          price: 0,
+          actual: price,
+          ownerType: '自有'
+        });
+        // 记录交易
+        db.trades.push({
+          cardCode: '',
+          cardName: name,
+          type: '买入',
+          money: (qty * price).toFixed(2),
+          date: new Date().toLocaleString(),
+          user: currentUser
+        });
+      }else{
+        alert(`卡牌【${name}】不存在，无法卖出`);
+        ok = false;
+      }
+      return;
     }
 
+    // 卖出库存校验
+    if(type === '卖出'){
+      if(card.qty < qty){
+        alert(`【${card.name}】库存不足！当前库存：${card.qty}，卖出数量：${qty}`);
+        ok = false;
+        return;
+      }
+      card.qty -= qty;
+    }else{
+      // 买入增加库存
+      card.qty += qty;
+      card.actual = price;
+    }
+
+    // 写入交易记录
     db.trades.push({
-      cardCode: exist?.code || '',
-      cardName: name,
-      type: '买入',
+      cardCode: card.code,
+      cardName: card.name,
+      type: type,
       money: (qty * price).toFixed(2),
       date: new Date().toLocaleString(),
       user: currentUser
     });
   });
 
-  saveGlobalData();
-  document.getElementById('bulkBuyList').innerHTML = '';
-  alert('批量买入完成！');
-  showPage('cards');
-}
-
-// ==============================================
-// 批量卖出 修复版
-// ==============================================
-function addSellLine() {
-  const d = document.createElement('div');
-  d.className = 'd-flex gap-2 mb-2 flex-wrap align-items-center';
-  d.innerHTML = `
-  <input class="form-control form-control-sm flex-grow-2 sell-key" placeholder="输入编号/名称" oninput="autoMatchSell(this)">
-  <input class="form-control form-control-sm flex-grow-1 sell-name" placeholder="卡牌名" readonly style="background:#f8f9fa">
-  <input class="form-control form-control-sm flex-grow-1 sell-qty" type="number" placeholder="卖出数量" value="1">
-  <input class="form-control form-control-sm flex-grow-1 sell-price" type="number" placeholder="单价" value="0">`;
-  document.getElementById('bulkSellList').appendChild(d);
-}
-
-function autoMatchSell(input) {
-  const val = input.value.trim().toLowerCase();
-  const row = input.closest('.d-flex');
-  const nameEl = row.querySelector('.sell-name');
-
-  if (!val) {
-    nameEl.value = '';
-    return;
-  }
-
-  const hit = db.cards.find(x =>
-    (x.code || "").toLowerCase().includes(val) ||
-    x.name.toLowerCase().includes(val)
-  );
-
-  nameEl.value = hit ? hit.name : '';
-}
-
-function doBulkSell() {
-  const lines = document.querySelectorAll('#bulkSellList > div');
-  for (const line of lines) {
-    const key = line.querySelector('.sell-key').value.trim().toLowerCase();
-    const name = line.querySelector('.sell-name').value.trim();
-    const qty = +line.querySelector('.sell-qty').value || 0;
-    const price = +line.querySelector('.sell-price').value || 0;
-
-    if (!key || qty <= 0 || !name) continue;
-
-    const card = db.cards.find(c =>
-      (c.code || "").toLowerCase().includes(key) ||
-      c.name.toLowerCase() === name.toLowerCase()
-    );
-
-    if (!card) {
-      alert(`未找到卡牌：${name}`);
-      return;
-    }
-    if (card.qty < qty) {
-      alert(`【${card.name}】库存不足，当前：${card.qty}`);
-      return;
-    }
-
-    card.qty -= qty;
-
-    db.trades.push({
-      cardCode: card.code,
-      cardName: card.name,
-      type: '卖出',
-      money: (qty * price).toFixed(2),
-      date: new Date().toLocaleString(),
-      user: currentUser
-    });
-  }
+  if(!ok) return;
 
   saveGlobalData();
-  document.getElementById('bulkSellList').innerHTML = '';
-  alert('卖出完成');
+  document.getElementById('inOutList').innerHTML = '';
+  alert('出入库操作完成！');
   showPage('cards');
 }
 
@@ -587,7 +556,7 @@ const templateColumns = [
   { key: 'name', title: '名称' },
   { key: 'set', title: '版本' },
   { key: 'rarity', title: '稀有度' },
-  { key: 'qty', title:库存 },
+  { key: 'qty', title: '库存' },
   { key: 'price', title: '市场价' },
   { key: 'actual', title: '成本价' },
   { key: 'ownerType', title: '归属' }
@@ -637,7 +606,7 @@ function importExcel() {
     const reader = new FileReader();
     reader.onload = ev => {
       const wb = XLSX.read(ev.target.result, { type: 'array' });
-      const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      const data = XLSX.utils.sheet_to_json(wb.SheetNames[0]);
       
       if(importCoverMode){
         db.cards = [];
