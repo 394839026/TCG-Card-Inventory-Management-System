@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TCG卡牌库存管理-含高级筛选+标签备注</title>
+<title>TCG卡牌库存管理-优化不卡顿版</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
@@ -145,7 +145,7 @@ body{
 <body class="p-3">
 
 <div class="card main-card p-4">
-  <h5 class="mb-4 fw-bold">🎴 TCG卡牌库存管理完整版</h5>
+  <h5 class="mb-4 fw-bold">🎴 TCG卡牌库存管理-优化不卡顿版</h5>
 
   <!-- 顶部统计 -->
   <div class="stat-bar row g-3 mb-4">
@@ -158,25 +158,25 @@ body{
   <!-- 高级筛选区 -->
   <div class="filter-bar row g-3 mb-4">
     <div class="col-md-2">
-      <input class="form-control form-control-sm" id="filterKey" placeholder="关键词/编号/名称" oninput="renderCards()">
+      <input class="form-control form-control-sm" id="filterKey" placeholder="关键词/编号/名称">
     </div>
     <div class="col-md-2">
-      <select class="form-select form-select-sm" id="filterVersion" onchange="renderCards()">
+      <select class="form-select form-select-sm" id="filterVersion">
         <option value="">全部版本</option>
       </select>
     </div>
     <div class="col-md-2">
-      <select class="form-select form-select-sm" id="filterRare" onchange="renderCards()">
+      <select class="form-select form-select-sm" id="filterRare">
         <option value="">全部稀有度</option>
       </select>
     </div>
     <div class="col-md-2">
-      <select class="form-select form-select-sm" id="filterOwner" onchange="renderCards()">
+      <select class="form-select form-select-sm" id="filterOwner">
         <option value="">全部归属</option>
       </select>
     </div>
     <div class="col-md-2">
-      <select class="form-select form-select-sm" id="filterTag" onchange="renderCards()">
+      <select class="form-select form-select-sm" id="filterTag">
         <option value="">全部标签</option>
         <option value="自留">自留</option>
         <option value="可出">可出</option>
@@ -186,7 +186,7 @@ body{
       </select>
     </div>
     <div class="col-md-2">
-      <select class="form-select form-select-sm" id="filterStock" onchange="renderCards()">
+      <select class="form-select form-select-sm" id="filterStock">
         <option value="">全部库存</option>
         <option value="has">有库存</option>
         <option value="zero">零库存</option>
@@ -298,13 +298,33 @@ body{
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-// 卡牌字段新增：tag标签、remark备注
+// ========== 全局变量 & 优化配置 ==========
+const RENDER_LIMIT = 200; // 单次最多渲染200条，防卡顿
 let db = {
   cards: JSON.parse(localStorage.getItem('TCG_CARDS')) || []
 };
 let nowImportMode = 'add';
 let currentView = 'list';
+let filterDebounceTimer = null;
 const editModal = new bootstrap.Modal(document.getElementById('editModal'));
+
+// 防抖绑定筛选事件
+document.addEventListener('DOMContentLoaded', ()=>{
+  const filterKeys = ['filterKey','filterVersion','filterRare','filterOwner','filterTag','filterStock'];
+  filterKeys.forEach(id=>{
+    const el = document.getElementById(id);
+    el.addEventListener('input', debounceRender);
+    el.addEventListener('change', debounceRender);
+  });
+});
+
+// 防抖渲染
+function debounceRender(){
+  clearTimeout(filterDebounceTimer);
+  filterDebounceTimer = setTimeout(()=>{
+    renderCards();
+  }, 180);
+}
 
 function saveDB(){
   localStorage.setItem('TCG_CARDS', JSON.stringify(db.cards));
@@ -316,8 +336,14 @@ function setView(v){
   renderCards();
 }
 
-// 填充筛选下拉选项
+// 缓存下拉选项，不重复生成
+let cachedVersionSet = null;
+let cachedRareSet = null;
+let cachedOwnerSet = null;
+
 function fillFilterOption(){
+  if(cachedVersionSet && cachedRareSet && cachedOwnerSet) return;
+
   let versionSet = new Set();
   let rareSet = new Set();
   let ownerSet = new Set();
@@ -326,6 +352,10 @@ function fillFilterOption(){
     if(c.rare) rareSet.add(c.rare);
     if(c.owner) ownerSet.add(c.owner);
   });
+  cachedVersionSet = versionSet;
+  cachedRareSet = rareSet;
+  cachedOwnerSet = ownerSet;
+
   // 版本
   let vSel = document.getElementById('filterVersion');
   vSel.innerHTML = '<option value="">全部版本</option>';
@@ -350,33 +380,32 @@ function getFilterList(){
   let stock = document.getElementById('filterStock').value;
 
   return db.cards.filter(c=>{
-    // 关键词筛选
     if(key){
       let code = (c.code||'').toLowerCase();
       let name = (c.name||'').toLowerCase();
       if(!code.includes(key) && !name.includes(key)) return false;
     }
-    // 版本
     if(ver && c.version!==ver) return false;
-    // 稀有度
     if(rare && c.rare!==rare) return false;
-    // 归属
     if(owner && c.owner!==owner) return false;
-    // 标签
     if(tag && c.tag!==tag) return false;
-    // 库存
     if(stock==='has' && Number(c.qty)===0) return false;
     if(stock==='zero' && Number(c.qty)>0) return false;
     return true;
   });
 }
 
-// 顶部统计：总种类、总张数、总市值、零库存
+// 顶部统计
 function renderStat(){
   let totalType = db.cards.length;
-  let totalQty = db.cards.reduce((sum,item)=>sum + (Number(item.qty)||0),0);
-  let totalVal = db.cards.reduce((sum,item)=>sum + (Number(item.qty)||0)*(Number(item.market)||0),0);
-  let zeroQty = db.cards.filter(x=>Number(x.qty)===0).length;
+  let totalQty = 0, totalVal = 0, zeroQty = 0;
+  for(let i=0;i<db.cards.length;i++){
+    let item = db.cards[i];
+    let qty = Number(item.qty)||0;
+    totalQty += qty;
+    totalVal += qty * (Number(item.market)||0);
+    if(qty === 0) zeroQty++;
+  }
 
   document.getElementById('statTotalType').innerText = totalType;
   document.getElementById('statTotalQty').innerText = totalQty;
@@ -405,10 +434,14 @@ function getTagClass(tag){
   return '';
 }
 
+// 优化渲染：限制单次渲染数量、批量拼接HTML
 function renderCards(){
   renderStat();
   fillFilterOption();
   let list = getFilterList();
+  // 截断过多数据，防止一次性渲染巨量DOM卡顿
+  let renderList = list.length > RENDER_LIMIT ? list.slice(0, RENDER_LIMIT) : list;
+
   let wrap = document.getElementById('cards');
   wrap.className = 'page view-' + currentView;
 
@@ -417,30 +450,23 @@ function renderCards(){
     return;
   }
 
-  // 紧凑表格视图
+  // 表格视图
   if(currentView === 'table'){
-    let html = `
+    let htmlBuf = [];
+    htmlBuf.push(`
     <div class="table-responsive">
     <table class="view-table">
       <thead>
         <tr>
-          <th>编号</th>
-          <th>名称</th>
-          <th>版本</th>
-          <th>稀有度</th>
-          <th>库存</th>
-          <th>市场价</th>
-          <th>成本价</th>
-          <th>归属</th>
-          <th>标签</th>
-          <th>备注</th>
-          <th>操作</th>
+          <th>编号</th><th>名称</th><th>版本</th><th>稀有度</th><th>库存</th>
+          <th>市场价</th><th>成本价</th><th>归属</th><th>标签</th><th>备注</th><th>操作</th>
         </tr>
       </thead>
-      <tbody>`;
-    list.forEach((c,idx)=>{
+      <tbody>`);
+    renderList.forEach(c=>{
       let tagCls = getTagClass(c.tag);
-      html += `
+      let idx = db.cards.indexOf(c);
+      htmlBuf.push(`
       <tr>
         <td>${c.code||''}</td>
         <td>${c.name||''}</td>
@@ -452,19 +478,20 @@ function renderCards(){
         <td>${c.owner||''}</td>
         <td><span class="tag-label ${tagCls}">${c.tag||'无'}</span></td>
         <td>${c.remark||''}</td>
-        <td><button class="btn btn-sm btn-outline-primary" onclick="openEdit(${db.cards.indexOf(c)})">编辑</button></td>
-      </tr>`;
+        <td><button class="btn btn-sm btn-outline-primary" onclick="openEdit(${idx})">编辑</button></td>
+      </tr>`);
     });
-    html += `</tbody></table></div>`;
-    wrap.innerHTML = html;
+    htmlBuf.push(`</tbody></table></div>`);
+    wrap.innerHTML = htmlBuf.join('');
     return;
   }
 
-  // 列表 / 网格视图
-  let html = '';
-  list.forEach((c)=>{
+  // 列表/网格 批量拼接
+  let htmlBuf = [];
+  renderList.forEach((c)=>{
     let tagCls = getTagClass(c.tag);
-    html += `
+    let idx = db.cards.indexOf(c);
+    htmlBuf.push(`
     <div class="card-item">
       <div class="row g-2">
         <div class="col-6"><span class="text-muted">编号：</span>${c.code||'无'}</div>
@@ -479,11 +506,11 @@ function renderCards(){
         <div class="col-12"><span class="text-muted">备注：</span>${c.remark||'无'}</div>
       </div>
       <div class="mt-2 text-end">
-        <button class="btn btn-sm btn-outline-primary" onclick="openEdit(${db.cards.indexOf(c)})">编辑</button>
+        <button class="btn btn-sm btn-outline-primary" onclick="openEdit(${idx})">编辑</button>
       </div>
-    </div>`;
+    </div>`);
   });
-  wrap.innerHTML = html;
+  wrap.innerHTML = htmlBuf.join('');
 }
 
 // 打开编辑弹窗
@@ -524,6 +551,8 @@ function saveEdit(){
     remark: document.getElementById('editRemark').value.trim()
   };
   saveDB();
+  // 清空下拉缓存，下次重新生成
+  cachedVersionSet = cachedRareSet = cachedOwnerSet = null;
   editModal.hide();
   renderCards();
 }
@@ -534,11 +563,12 @@ function delOneCard(){
   if(!confirm('确定删除这条卡牌记录？')) return;
   db.cards.splice(idx,1);
   saveDB();
+  cachedVersionSet = cachedRareSet = cachedOwnerSet = null;
   editModal.hide();
   renderCards();
 }
 
-// 出入库原有逻辑不变
+// 出入库
 function addIoLine(){
   let wrap = document.getElementById('ioList');
   let div = document.createElement('div');
@@ -629,17 +659,17 @@ function submitIo(){
   }
   if(hasError) return;
   saveDB();
+  cachedVersionSet = cachedRareSet = cachedOwnerSet = null;
   alert('操作完成');
   showPage('cards');
 }
 
-// Excel导入模式
+// Excel导入导出
 function importExcelMode(mode){
   nowImportMode = mode;
   importExcel();
 }
 
-// 下载最新模板（含标签、备注）
 function downloadTemplate(){
   let ws = XLSX.utils.json_to_sheet([
     {编号:'',名称:'',版本:'',稀有度:'',库存:0,市场价:0,成本价:0,归属:'',标签:'',备注:''}
@@ -649,7 +679,6 @@ function downloadTemplate(){
   XLSX.writeFile(wb,'卡牌完整模板.xlsx');
 }
 
-// 导入Excel 支持全部10字段 + 错误行提示
 function importExcel(){
   let inp = document.createElement('input');
   inp.type='file';
@@ -690,6 +719,7 @@ function importExcel(){
       });
 
       saveDB();
+      cachedVersionSet = cachedRareSet = cachedOwnerSet = null;
       if(errorRows.length>0){
         alert(`导入完成，以下行格式错误已跳过：第${errorRows.join(',')}行`);
       }else{
@@ -702,7 +732,6 @@ function importExcel(){
   inp.click();
 }
 
-// 导出Excel 包含全部10字段
 function exportExcel(){
   if(db.cards.length === 0){
     alert('无数据可导出');
@@ -739,6 +768,7 @@ function importJsonBackup(){
         if(!Array.isArray(arr)) throw Error();
         db.cards = arr;
         saveDB();
+        cachedVersionSet = cachedRareSet = cachedOwnerSet = null;
         alert('备份恢复成功');
         renderCards();
       }catch(err){
@@ -754,6 +784,7 @@ function clearAll(){
   if(!confirm('确定清空所有卡牌数据？不可恢复')) return;
   db.cards = [];
   saveDB();
+  cachedVersionSet = cachedRareSet = cachedOwnerSet = null;
   showPage('cards');
 }
 
