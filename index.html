@@ -215,6 +215,8 @@ document.getElementById('darkBtn').onclick = () => {
   dark = !dark;
   document.body.classList.toggle('dark-mode');
   localStorage.setItem('dark', dark ? '1' : '0');
+  const icon = document.querySelector('#darkBtn i');
+  icon.className = dark ? 'bi bi-sun' : 'bi bi-moon';
 };
 
 // ==============================================
@@ -226,14 +228,24 @@ document.getElementById('globalSearch').oninput = (e) => {
   loadCards();
 };
 
+// 页面切换 修复版
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.add('d-none'));
   document.getElementById(id).classList.remove('d-none');
+  
   if (id === 'cards') loadCards();
   if (id === 'trades') loadTrades();
   if (id === 'dashboard') refreshDashboard();
-  if (id === 'bulkBuy') addBuyLine();
-  if (id === 'bulkSell') addSellLine();
+  
+  // 进入批量页先清空旧行，再初始化新行
+  if (id === 'bulkBuy') {
+    document.getElementById('bulkBuyList').innerHTML = '';
+    addBuyLine();
+  }
+  if (id === 'bulkSell') {
+    document.getElementById('bulkSellList').innerHTML = '';
+    addSellLine();
+  }
 }
 
 function isHideZero() {
@@ -405,7 +417,7 @@ function refreshDashboard() {
 }
 
 // ==============================================
-// 批量买入 —— 从现有库存匹配
+// 批量买入 修复版
 // ==============================================
 function addBuyLine() {
   const d = document.createElement('div');
@@ -419,28 +431,32 @@ function addBuyLine() {
   document.getElementById('bulkBuyList').appendChild(d);
 }
 
-// 从【现有库存】自动匹配
 function autoMatchCard(input) {
   const val = input.value.trim().toLowerCase();
   const row = input.closest('.d-flex');
+  const nameEl = row.querySelector('.buy-name');
+  const setEl = row.querySelector('.buy-set');
+
   if (!val) {
-    row.querySelector('.buy-name').value = '';
-    row.querySelector('.buy-set').value = '';
+    nameEl.value = '';
+    setEl.value = '';
     return;
   }
 
   const hit = db.cards.find(x =>
-    (x.code || "").toLowerCase() === val ||
+    (x.code || "").toLowerCase().includes(val) ||
     x.name.toLowerCase().includes(val)
   );
 
   if (hit) {
-    row.querySelector('.buy-name').value = hit.name;
-    row.querySelector('.buy-set').value = hit.set || '';
+    nameEl.value = hit.name;
+    setEl.value = hit.set || '';
+  } else {
+    nameEl.value = '';
+    setEl.value = '';
   }
 }
 
-// 执行买入
 function doBulkBuy() {
   const lines = document.querySelectorAll('#bulkBuyList > div');
   lines.forEach(line => {
@@ -452,17 +468,15 @@ function doBulkBuy() {
 
     if (!name || qty <= 0) return;
 
-    // 从库存查找卡牌
     let exist = db.cards.find(x =>
-      (x.code || "").toLowerCase() === key ||
-      x.name.toLowerCase() === name
+      (x.code || "").toLowerCase().includes(key) ||
+      x.name.toLowerCase() === name.toLowerCase()
     );
 
     if (exist) {
       exist.qty += qty;
       exist.actual = price;
     } else {
-      // 不存在则新增
       db.cards.push({
         code: '',
         name: name,
@@ -475,7 +489,6 @@ function doBulkBuy() {
       });
     }
 
-    // 记录交易
     db.trades.push({
       cardCode: exist?.code || '',
       cardName: name,
@@ -493,7 +506,7 @@ function doBulkBuy() {
 }
 
 // ==============================================
-// 批量卖出 —— 读取现有库存
+// 批量卖出 修复版
 // ==============================================
 function addSellLine() {
   const d = document.createElement('div');
@@ -506,37 +519,36 @@ function addSellLine() {
   document.getElementById('bulkSellList').appendChild(d);
 }
 
-// 卖出自动匹配
 function autoMatchSell(input) {
   const val = input.value.trim().toLowerCase();
   const row = input.closest('.d-flex');
+  const nameEl = row.querySelector('.sell-name');
+
   if (!val) {
-    row.querySelector('.sell-name').value = '';
+    nameEl.value = '';
     return;
   }
 
   const hit = db.cards.find(x =>
-    (x.code || "").toLowerCase() === val ||
+    (x.code || "").toLowerCase().includes(val) ||
     x.name.toLowerCase().includes(val)
   );
 
-  if (hit) {
-    row.querySelector('.sell-name').value = hit.name;
-  }
+  nameEl.value = hit ? hit.name : '';
 }
 
 function doBulkSell() {
   const lines = document.querySelectorAll('#bulkSellList > div');
-  lines.forEach(line => {
-    const key = line.querySelector('.sell-key').value.trim();
+  for (const line of lines) {
+    const key = line.querySelector('.sell-key').value.trim().toLowerCase();
     const name = line.querySelector('.sell-name').value.trim();
     const qty = +line.querySelector('.sell-qty').value || 0;
     const price = +line.querySelector('.sell-price').value || 0;
 
-    if (!key || qty <= 0 || !name) return;
+    if (!key || qty <= 0 || !name) continue;
 
     const card = db.cards.find(c =>
-      (c.code || "").toLowerCase() === key.toLowerCase() ||
+      (c.code || "").toLowerCase().includes(key) ||
       c.name.toLowerCase() === name.toLowerCase()
     );
 
@@ -559,7 +571,7 @@ function doBulkSell() {
       date: new Date().toLocaleString(),
       user: currentUser
     });
-  });
+  }
 
   saveGlobalData();
   document.getElementById('bulkSellList').innerHTML = '';
@@ -575,7 +587,7 @@ const templateColumns = [
   { key: 'name', title: '名称' },
   { key: 'set', title: '版本' },
   { key: 'rarity', title: '稀有度' },
-  { key: 'qty', title: '库存' },
+  { key: 'qty', title:库存 },
   { key: 'price', title: '市场价' },
   { key: 'actual', title: '成本价' },
   { key: 'ownerType', title: '归属' }
