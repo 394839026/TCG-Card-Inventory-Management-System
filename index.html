@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TCG卡牌库存管理 - 增强实用版</title>
+<title>TCG卡牌库存管理-完整版(含版本/稀有度/成本/市价/归属)</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
@@ -68,7 +68,6 @@ body{
 .position-relative{position:relative;}
 
 /* 三种视图样式 */
-/* 简约列表 */
 .view-list .card-item{
   background:#fafbfc;
   border-radius:12px;
@@ -81,10 +80,9 @@ body{
   box-shadow:0 2px 10px rgba(0,0,0,0.06);
 }
 
-/* 卡片网格 */
 .view-grid{
   display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+  grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
   gap:12px;
 }
 .view-grid .card-item{
@@ -92,18 +90,17 @@ body{
   border-radius:12px;
   border:1px solid var(--border);
   padding:12px;
-  text-align:center;
 }
 
-/* 紧凑表格 */
 .view-table{
   width:100%;
   border-collapse:collapse;
+  font-size:13px;
 }
 .view-table th,.view-table td{
   border:1px solid var(--border);
   padding:6px 8px;
-  font-size:13px;
+  white-space:nowrap;
 }
 .view-table th{
   background:#f5f7fa;
@@ -130,13 +127,13 @@ body{
 <body class="p-3">
 
 <div class="card main-card p-4">
-  <h5 class="mb-4 fw-bold">🎴 TCG卡牌库存管理系统</h5>
+  <h5 class="mb-4 fw-bold">🎴 TCG卡牌库存管理完整版</h5>
 
-  <!-- 顶部统计栏 -->
+  <!-- 顶部统计 -->
   <div class="stat-bar row g-3 mb-4">
     <div class="col-md-3"><span class="text-muted">卡牌总种类：</span><strong id="statTotalType">0</strong></div>
     <div class="col-md-3"><span class="text-muted">卡牌总张数：</span><strong id="statTotalQty">0</strong></div>
-    <div class="col-md-3"><span class="text-muted">库存总估值：</span><strong id="statTotalVal">¥0</strong></div>
+    <div class="col-md-3"><span class="text-muted">库存总市值：</span><strong id="statTotalVal">¥0</strong></div>
     <div class="col-md-3"><span class="text-muted">零库存数量：</span><strong id="statZeroQty">0</strong></div>
   </div>
 
@@ -176,31 +173,47 @@ body{
   </div>
 </div>
 
-<!-- 编辑弹窗 -->
+<!-- 编辑弹窗：包含全部8个字段 -->
 <div class="modal fade" id="editModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h6 class="modal-title">编辑卡牌信息</h6>
+        <h6 class="modal-title">编辑卡牌完整信息</h6>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body">
+      <div class="modal-body row g-3">
         <input type="hidden" id="editIndex">
-        <div class="mb-2">
-          <label>卡牌编号</label>
+        <div class="col-md-3">
+          <label>编号</label>
           <input class="form-control" id="editCode">
         </div>
-        <div class="mb-2">
-          <label>卡牌名称</label>
+        <div class="col-md-3">
+          <label>名称</label>
           <input class="form-control" id="editName">
         </div>
-        <div class="mb-2">
-          <label>库存数量</label>
+        <div class="col-md-3">
+          <label>版本</label>
+          <input class="form-control" id="editVersion">
+        </div>
+        <div class="col-md-3">
+          <label>稀有度</label>
+          <input class="form-control" id="editRare">
+        </div>
+        <div class="col-md-3">
+          <label>库存</label>
           <input class="form-control" type="number" id="editQty" min="0">
         </div>
-        <div class="mb-2">
-          <label>单张估值(用于统计总资产)</label>
-          <input class="form-control" type="number" id="editPrice" min="0" step="0.01">
+        <div class="col-md-3">
+          <label>市场价</label>
+          <input class="form-control" type="number" id="editMarket" min="0" step="0.01">
+        </div>
+        <div class="col-md-3">
+          <label>成本价</label>
+          <input class="form-control" type="number" id="editCost" min="0" step="0.01">
+        </div>
+        <div class="col-md-3">
+          <label>归属</label>
+          <input class="form-control" id="editOwner">
         </div>
       </div>
       <div class="modal-footer">
@@ -213,6 +226,7 @@ body{
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+// 卡牌字段：code编号、name名称、version版本、rare稀有度、qty库存、market市场价、cost成本价、owner归属
 let db = {
   cards: JSON.parse(localStorage.getItem('TCG_CARDS')) || []
 };
@@ -230,11 +244,11 @@ function setView(v){
   renderCards();
 }
 
-// 顶部统计
+// 顶部统计：总种类、总张数、总市值、零库存
 function renderStat(){
   let totalType = db.cards.length;
   let totalQty = db.cards.reduce((sum,item)=>sum + (Number(item.qty)||0),0);
-  let totalVal = db.cards.reduce((sum,item)=>sum + (Number(item.qty)||0)*(Number(item.price)||0),0);
+  let totalVal = db.cards.reduce((sum,item)=>sum + (Number(item.qty)||0)*(Number(item.market)||0),0);
   let zeroQty = db.cards.filter(x=>Number(x.qty)===0).length;
 
   document.getElementById('statTotalType').innerText = totalType;
@@ -263,15 +277,21 @@ function renderCards(){
     return;
   }
 
+  // 紧凑表格视图
   if(currentView === 'table'){
     let html = `
+    <div class="table-responsive">
     <table class="view-table">
       <thead>
         <tr>
           <th>编号</th>
           <th>名称</th>
+          <th>版本</th>
+          <th>稀有度</th>
           <th>库存</th>
-          <th>单张估值</th>
+          <th>市场价</th>
+          <th>成本价</th>
+          <th>归属</th>
           <th>操作</th>
         </tr>
       </thead>
@@ -279,20 +299,23 @@ function renderCards(){
     db.cards.forEach((c,idx)=>{
       html += `
       <tr>
-        <td>${c.code||'无'}</td>
-        <td>${c.name}</td>
-        <td>${c.qty}</td>
-        <td>¥${Number(c.price||0).toFixed(2)}</td>
-        <td>
-          <button class="btn btn-sm btn-outline-primary" onclick="openEdit(${idx})">编辑</button>
-        </td>
+        <td>${c.code||''}</td>
+        <td>${c.name||''}</td>
+        <td>${c.version||''}</td>
+        <td>${c.rare||''}</td>
+        <td>${c.qty||0}</td>
+        <td>¥${Number(c.market||0).toFixed(2)}</td>
+        <td>¥${Number(c.cost||0).toFixed(2)}</td>
+        <td>${c.owner||''}</td>
+        <td><button class="btn btn-sm btn-outline-primary" onclick="openEdit(${idx})">编辑</button></td>
       </tr>`;
     });
-    html += `</tbody></table>`;
+    html += `</tbody></table></div>`;
     wrap.innerHTML = html;
     return;
   }
 
+  // 列表 / 网格视图
   let html = '';
   db.cards.forEach((c, index)=>{
     html += `
@@ -300,8 +323,12 @@ function renderCards(){
       <div class="row g-2">
         <div class="col-6"><span class="text-muted">编号：</span>${c.code||'无'}</div>
         <div class="col-6"><span class="text-muted">名称：</span>${c.name}</div>
-        <div class="col-6"><span class="text-muted">库存：</span><strong class="text-primary">${c.qty}</strong></div>
-        <div class="col-6"><span class="text-muted">单张估值：</span>¥${Number(c.price||0).toFixed(2)}</div>
+        <div class="col-6"><span class="text-muted">版本：</span>${c.version||'无'}</div>
+        <div class="col-6"><span class="text-muted">稀有度：</span>${c.rare||'无'}</div>
+        <div class="col-6"><span class="text-muted">库存：</span><strong class="text-primary">${c.qty||0}</strong></div>
+        <div class="col-6"><span class="text-muted">市场价：</span>¥${Number(c.market||0).toFixed(2)}</div>
+        <div class="col-6"><span class="text-muted">成本价：</span>¥${Number(c.cost||0).toFixed(2)}</div>
+        <div class="col-6"><span class="text-muted">归属：</span>${c.owner||'无'}</div>
       </div>
       <div class="mt-2 text-end">
         <button class="btn btn-sm btn-outline-primary" onclick="openEdit(${index})">编辑</button>
@@ -311,39 +338,50 @@ function renderCards(){
   wrap.innerHTML = html;
 }
 
-// 编辑卡牌
+// 打开编辑弹窗
 function openEdit(idx){
   let c = db.cards[idx];
   document.getElementById('editIndex').value = idx;
   document.getElementById('editCode').value = c.code||'';
   document.getElementById('editName').value = c.name||'';
+  document.getElementById('editVersion').value = c.version||'';
+  document.getElementById('editRare').value = c.rare||'';
   document.getElementById('editQty').value = c.qty||0;
-  document.getElementById('editPrice').value = c.price||0;
+  document.getElementById('editMarket').value = c.market||0;
+  document.getElementById('editCost').value = c.cost||0;
+  document.getElementById('editOwner').value = c.owner||'';
   editModal.show();
 }
 
+// 保存编辑
 function saveEdit(){
   let idx = parseInt(document.getElementById('editIndex').value);
-  db.cards[idx].code = document.getElementById('editCode').value.trim();
-  db.cards[idx].name = document.getElementById('editName').value.trim();
-  db.cards[idx].qty = parseInt(document.getElementById('editQty').value)||0;
-  db.cards[idx].price = parseFloat(document.getElementById('editPrice').value)||0;
+  db.cards[idx] = {
+    code: document.getElementById('editCode').value.trim(),
+    name: document.getElementById('editName').value.trim(),
+    version: document.getElementById('editVersion').value.trim(),
+    rare: document.getElementById('editRare').value.trim(),
+    qty: parseInt(document.getElementById('editQty').value)||0,
+    market: parseFloat(document.getElementById('editMarket').value)||0,
+    cost: parseFloat(document.getElementById('editCost').value)||0,
+    owner: document.getElementById('editOwner').value.trim()
+  };
   saveDB();
   editModal.hide();
   renderCards();
 }
 
-// 单条删除
+// 删除单条卡牌
 function delOneCard(){
   let idx = parseInt(document.getElementById('editIndex').value);
-  if(!confirm('确定删除这条卡牌？')) return;
+  if(!confirm('确定删除这条卡牌记录？')) return;
   db.cards.splice(idx,1);
   saveDB();
   editModal.hide();
   renderCards();
 }
 
-// 出入库
+// 出入库原有逻辑不变
 function addIoLine(){
   let wrap = document.getElementById('ioList');
   let div = document.createElement('div');
@@ -413,7 +451,7 @@ function submitIo(){
     let idx = db.cards.findIndex(x=>x.name===name);
     if(idx===-1){
       if(type==='入库'){
-        db.cards.push({code:'',name:name,qty:qty,price:0});
+        db.cards.push({code:'',name:name,version:'',rare:'',qty:qty,market:0,cost:0,owner:''});
       }else{
         alert(`【${name}】不存在，无法出库`);
         hasError = true;
@@ -438,21 +476,23 @@ function submitIo(){
   showPage('cards');
 }
 
-// Excel 导入模式
+// Excel导入模式
 function importExcelMode(mode){
   nowImportMode = mode;
   importExcel();
 }
 
+// 下载最新模板（包含全部8列）
 function downloadTemplate(){
   let ws = XLSX.utils.json_to_sheet([
-    {编号:'',名称:'',库存:'',单张估值:0}
+    {编号:'',名称:'',版本:'',稀有度:'',库存:0,市场价:0,成本价:0,归属:''}
   ]);
   let wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
-  XLSX.writeFile(wb,'卡牌模板.xlsx');
+  XLSX.writeFile(wb,'卡牌完整模板.xlsx');
 }
 
+// 导入Excel 支持8字段 + 错误行提示
 function importExcel(){
   let inp = document.createElement('input');
   inp.type='file';
@@ -465,10 +505,7 @@ function importExcel(){
       let arr = XLSX.utils.sheet_to_json(wb.Sheets.Sheet1);
       let errorRows = [];
 
-      // 覆盖导入先清空
-      if(nowImportMode === 'cover'){
-        db.cards = [];
-      }
+      if(nowImportMode === 'cover') db.cards = [];
 
       arr.forEach((row,rowIdx)=>{
         let line = rowIdx + 2;
@@ -478,22 +515,24 @@ function importExcel(){
           return;
         }
         let code = (row['编号']||'').toString().trim();
+        let version = (row['版本']||'').toString().trim();
+        let rare = (row['稀有度']||'').toString().trim();
         let qty = Number(row['库存'])||0;
-        let price = Number(row['单张估值'])||0;
+        let market = Number(row['市场价'])||0;
+        let cost = Number(row['成本价'])||0;
+        let owner = (row['归属']||'').toString().trim();
         
         let exist = db.cards.findIndex(x=>x.name === name);
         if(exist !== -1){
-          db.cards[exist].code = code;
-          db.cards[exist].qty = qty;
-          db.cards[exist].price = price;
+          db.cards[exist] = {code,name,version,rare,qty,market,cost,owner};
         }else{
-          db.cards.push({code,name,qty,price});
+          db.cards.push({code,name,version,rare,qty,market,cost,owner});
         }
       });
 
       saveDB();
       if(errorRows.length>0){
-        alert(`导入完成，但以下行格式错误已跳过：第${errorRows.join(',')}行`);
+        alert(`导入完成，以下行格式错误已跳过：第${errorRows.join(',')}行`);
       }else{
         alert(nowImportMode==='add'?'增量导入成功':'覆盖导入成功');
       }
@@ -504,6 +543,7 @@ function importExcel(){
   inp.click();
 }
 
+// 导出Excel 包含全部8字段
 function exportExcel(){
   if(db.cards.length === 0){
     alert('无数据可导出');
@@ -511,8 +551,8 @@ function exportExcel(){
   }
   let wb = XLSX.utils.book_new();
   let ws = XLSX.utils.json_to_sheet(db.cards);
-  XLSX.utils.book_append_sheet(wb, ws, '库存');
-  XLSX.writeFile(wb,'卡牌库存.xlsx');
+  XLSX.utils.book_append_sheet(wb, ws, '卡牌库存');
+  XLSX.writeFile(wb,'卡牌库存完整数据.xlsx');
 }
 
 // JSON备份恢复
@@ -522,7 +562,7 @@ function exportJsonBackup(){
   let url = URL.createObjectURL(blob);
   let a = document.createElement('a');
   a.href = url;
-  a.download = 'TCG_卡牌备份.json';
+  a.download = 'TCG_卡牌完整备份.json';
   a.click();
   URL.revokeObjectURL(url);
 }
